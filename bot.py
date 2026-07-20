@@ -20,6 +20,8 @@ os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 DEFAULT_CONFIG = {
     "log_channel_id": None,
     "log_channel_name": "arc-orders",
+    "orders_channel_id": None,
+    "orders_channel_name": "arc-requests",
     "category_id": DEFAULT_TICKET_CATEGORY_ID,
     "max_tickets_per_day": 5,
     "transcript_enabled": True,
@@ -56,6 +58,14 @@ def get_log_channel(guild):
         if ch:
             return ch
     return discord.utils.get(guild.text_channels, name=cfg["log_channel_name"])
+
+def get_orders_channel(guild):
+    cfg = load_config()
+    if cfg.get("orders_channel_id"):
+        ch = guild.get_channel(cfg["orders_channel_id"])
+        if ch:
+            return ch
+    return discord.utils.get(guild.text_channels, name=cfg["orders_channel_name"])
 
 config = load_config()
 
@@ -240,6 +250,20 @@ class PaymentSelect(Select):
         await interaction.response.edit_message(view=self.view)
         await interaction.channel.send(embed=embed, view=close_view)
 
+        # ── نشر الطلب في قناة "الطلبات" مع حالة قابلة للتحديث ──
+        orders_channel = get_orders_channel(interaction.guild)
+        if orders_channel:
+            order_embed = discord.Embed(title="🆕 طلب جديد", color=0xFFD700, timestamp=datetime.datetime.now())
+            order_embed.add_field(name="👤 العميل", value=interaction.user.mention, inline=True)
+            order_embed.add_field(name="📦 المنتج", value=self.product_name, inline=True)
+            order_embed.add_field(name="💳 طريقة الدفع", value=payment, inline=True)
+            order_embed.add_field(name="📊 الحالة", value="🔄 قيد الإنشاء", inline=True)
+            if self.notes:
+                order_embed.add_field(name="📝 ملاحظات", value=self.notes, inline=False)
+            order_embed.add_field(name="🎫 التذكرة", value=interaction.channel.mention, inline=False)
+            order_embed.set_footer(text=f"ID: {interaction.user.id}")
+            await orders_channel.send(embed=order_embed, view=OrderStatusView())
+
 
 class PaymentView(View):
     def __init__(self, product_name: str, notes: str, opener_id: int):
@@ -305,6 +329,39 @@ class TicketTypeView(View):
     @discord.ui.button(label="❓ سؤال", style=discord.ButtonStyle.primary, custom_id="btn_question")
     async def question_button(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(QuestionModal(self.opener_id))
+
+
+# ─────────────────────────────────────────
+# View: تحديث حالة الطلب (قيد الإنشاء ⇄ تم)
+# ─────────────────────────────────────────
+class OrderStatusView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="✅ تحديد كـ: تم", style=discord.ButtonStyle.success, custom_id="order_toggle_status")
+    async def toggle_status(self, interaction: discord.Interaction, button: Button):
+        if not interaction.user.guild_permissions.manage_channels:
+            await interaction.response.send_message("❌ لازم تكون من فريق العمل عشان تعدل حالة الطلب", ephemeral=True)
+            return
+
+        old_embed = interaction.message.embeds[0]
+        new_embed = discord.Embed.from_dict(old_embed.to_dict())
+
+        for i, field in enumerate(new_embed.fields):
+            if field.name == "📊 الحالة":
+                if "قيد الإنشاء" in field.value:
+                    new_embed.set_field_at(i, name="📊 الحالة", value="✅ تم", inline=field.inline)
+                    new_embed.color = 0x2ecc71
+                    button.label = "🔄 إرجاع لـ: قيد الإنشاء"
+                    button.style = discord.ButtonStyle.secondary
+                else:
+                    new_embed.set_field_at(i, name="📊 الحالة", value="🔄 قيد الإنشاء", inline=field.inline)
+                    new_embed.color = 0xFFD700
+                    button.label = "✅ تحديد كـ: تم"
+                    button.style = discord.ButtonStyle.success
+                break
+
+        await interaction.response.edit_message(embed=new_embed, view=self)
 
 
 # ─────────────────────────────────────────
@@ -499,11 +556,31 @@ class LogChannelSelect(discord.ui.ChannelSelect):
         await self.setup_view.refresh(interaction)
 
 
+class OrdersChannelSelect(discord.ui.ChannelSelect):
+    def __init__(self, setup_view):
+        super().__init__(
+            placeholder="🧾 اختر روم الطلبات (تظهر فيه كل الطلبات وحالتها)...",
+            channel_types=[discord.ChannelType.text],
+            custom_id="orders_channel_select",
+            row=2
+        )
+        self.setup_view = setup_view
+
+    async def callback(self, interaction: discord.Interaction):
+        cfg = load_config()
+        ch = self.values[0]
+        cfg["orders_channel_id"] = ch.id
+        cfg["orders_channel_name"] = ch.name
+        save_config(cfg)
+        await self.setup_view.refresh(interaction)
+
+
 class SetupView(View):
     def __init__(self):
         super().__init__(timeout=600)
         self.add_item(CategorySelect(self))
         self.add_item(LogChannelSelect(self))
+        self.add_item(OrdersChannelSelect(self))
         self.update_labels()
 
     def update_labels(self):
@@ -521,10 +598,12 @@ class SetupView(View):
 
         category = guild.get_channel(cfg["category_id"]) if cfg.get("category_id") else None
         log_channel = get_log_channel(guild)
+        orders_channel = get_orders_channel(guild)
 
         embed = discord.Embed(title="⚙️ إعدادات نظام التذاكر", color=0x5865F2)
         embed.add_field(name="📁 كاتيجوري التذاكر", value=category.name if category else "❌ غير محدد", inline=True)
         embed.add_field(name="📋 قناة السجل", value=log_channel.mention if log_channel else "❌ غير محدد", inline=True)
+        embed.add_field(name="🧾 روم الطلبات", value=orders_channel.mention if orders_channel else "❌ غير محدد", inline=True)
         embed.add_field(name="🔢 الحد اليومي للتذاكر", value=f"{cfg['max_tickets_per_day']} تذاكر/يوم", inline=True)
         embed.add_field(
             name="📄 تسجيل المحادثة الكامل",
@@ -542,18 +621,18 @@ class SetupView(View):
         else:
             await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="📄 تعطيل تسجيل المحادثة", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="📄 تعطيل تسجيل المحادثة", style=discord.ButtonStyle.danger, row=3)
     async def toggle_transcript(self, interaction: discord.Interaction, button: Button):
         cfg = load_config()
         cfg["transcript_enabled"] = not cfg.get("transcript_enabled", True)
         save_config(cfg)
         await self.refresh(interaction)
 
-    @discord.ui.button(label="🔢 الحد اليومي", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="🔢 الحد اليومي", style=discord.ButtonStyle.secondary, row=3)
     async def set_limit(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(DailyLimitModal(self))
 
-    @discord.ui.button(label="🚀 نشر رسالة فتح التذاكر هنا", style=discord.ButtonStyle.success, row=3)
+    @discord.ui.button(label="🚀 نشر رسالة فتح التذاكر هنا", style=discord.ButtonStyle.success, row=4)
     async def publish(self, interaction: discord.Interaction, button: Button):
         cfg = load_config()
         if not cfg.get("category_id"):
@@ -585,6 +664,7 @@ async def on_ready():
     print(f"✅ البوت شغال: {bot.user}")
     print(f"📡 متصل بـ {len(bot.guilds)} سيرفر")
     bot.add_view(OpenTicketView())
+    bot.add_view(OrderStatusView())
 
 @bot.command(name="setup")
 @commands.has_permissions(administrator=True)
