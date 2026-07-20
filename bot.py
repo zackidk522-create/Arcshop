@@ -89,6 +89,74 @@ PAYMENT_METHODS = [
     discord.SelectOption(label="STC Pay",      value="STC Pay",      emoji="🟢"),
 ]
 
+# ─────────────────────────────────────────
+# ترجمات نظام التذاكر (عربي / إنجليزي)
+# ─────────────────────────────────────────
+TRANSLATIONS = {
+    "ar": {
+        "welcome_title": "🎫 مرحباً بك في نظام التذاكر",
+        "welcome_desc": "أهلاً {mention}! 👋\n\nاختر نوع تذكرتك من الأزرار أدناه 👇",
+        "field_product": "🛒 طلب منتج",
+        "field_product_desc": "اطلب منتج من المتجر (سلاح، برنت، غرض...)",
+        "field_question": "❓ سؤال",
+        "field_question_desc": "اسأل أي سؤال عن المتجر أو اللعبة",
+        "btn_product": "🛒 طلب منتج",
+        "btn_question": "❓ سؤال",
+        "modal_product_title": "🛒 طلب منتج",
+        "modal_product_name_label": "اسم المنتج",
+        "modal_product_name_placeholder": "مثال: سلاح، غرض، برنت...",
+        "modal_notes_label": "ملاحظات إضافية (اختياري)",
+        "modal_notes_placeholder": "أي تفاصيل تانية؟",
+        "modal_question_title": "❓ تقديم سؤال",
+        "modal_question_label": "سؤالك",
+        "modal_question_placeholder": "اكتب سؤالك هنا...",
+        "payment_prompt_title": "💳 اختر طريقة الدفع",
+        "payment_prompt_desc": "**المنتج:** {product}\n\nاختر طريقة الدفع من القائمة 👇",
+        "payment_placeholder": "اختر طريقة الدفع...",
+        "product_order_title": "🛒 طلب منتج جديد",
+        "field_user": "👤 المستخدم",
+        "field_product_name": "📦 المنتج",
+        "field_payment": "💳 طريقة الدفع",
+        "field_notes": "📝 ملاحظات",
+        "question_title": "❓ سؤال جديد",
+        "field_question_full": "💬 السؤال",
+        "close_button": "🔒 إغلاق التذكرة",
+        "ticket_closing_msg": "✅ تم إغلاق التذكرة، سيتم حذف القناة خلال 5 ثواني...",
+    },
+    "en": {
+        "welcome_title": "🎫 Welcome to the Ticket System",
+        "welcome_desc": "Hey {mention}! 👋\n\nChoose your ticket type from the buttons below 👇",
+        "field_product": "🛒 Order a Product",
+        "field_product_desc": "Order a product from the store (weapon, item, print...)",
+        "field_question": "❓ Question",
+        "field_question_desc": "Ask any question about the store or the game",
+        "btn_product": "🛒 Order Product",
+        "btn_question": "❓ Question",
+        "modal_product_title": "🛒 Order a Product",
+        "modal_product_name_label": "Product Name",
+        "modal_product_name_placeholder": "e.g: weapon, item, print...",
+        "modal_notes_label": "Additional Notes (optional)",
+        "modal_notes_placeholder": "Any other details?",
+        "modal_question_title": "❓ Ask a Question",
+        "modal_question_label": "Your Question",
+        "modal_question_placeholder": "Type your question here...",
+        "payment_prompt_title": "💳 Choose Payment Method",
+        "payment_prompt_desc": "**Product:** {product}\n\nChoose a payment method from the list 👇",
+        "payment_placeholder": "Choose payment method...",
+        "product_order_title": "🛒 New Product Order",
+        "field_user": "👤 Customer",
+        "field_product_name": "📦 Product",
+        "field_payment": "💳 Payment Method",
+        "field_notes": "📝 Notes",
+        "question_title": "❓ New Question",
+        "field_question_full": "💬 Question",
+        "close_button": "🔒 Close Ticket",
+        "ticket_closing_msg": "✅ Ticket closed, this channel will be deleted in 5 seconds...",
+    },
+}
+
+ticket_language = {}  # channel_id -> "ar" | "en"
+
 
 # ─────────────────────────────────────────
 # Daily ticket limit helpers
@@ -224,26 +292,29 @@ async def generate_transcript(channel: discord.TextChannel) -> str:
 # Select: اختيار طريقة الدفع
 # ─────────────────────────────────────────
 class PaymentSelect(Select):
-    def __init__(self, product_name: str, notes: str, opener_id: int):
-        super().__init__(placeholder="اختر طريقة الدفع...", options=PAYMENT_METHODS, custom_id="payment_select")
+    def __init__(self, product_name: str, notes: str, opener_id: int, lang: str = "ar"):
+        self.lang = lang
+        t = TRANSLATIONS[lang]
+        super().__init__(placeholder=t["payment_placeholder"], options=PAYMENT_METHODS, custom_id="payment_select")
         self.product_name = product_name
         self.notes = notes
         self.opener_id = opener_id
 
     async def callback(self, interaction: discord.Interaction):
         payment = self.values[0]
+        t = TRANSLATIONS[self.lang]
 
-        embed = discord.Embed(title="🛒 طلب منتج جديد", color=0x00ff99, timestamp=datetime.datetime.now())
-        embed.add_field(name="👤 المستخدم", value=interaction.user.mention, inline=True)
-        embed.add_field(name="📦 المنتج", value=self.product_name, inline=True)
-        embed.add_field(name="💳 طريقة الدفع", value=payment, inline=True)
+        embed = discord.Embed(title=t["product_order_title"], color=0x00ff99, timestamp=datetime.datetime.now())
+        embed.add_field(name=t["field_user"], value=interaction.user.mention, inline=True)
+        embed.add_field(name=t["field_product_name"], value=self.product_name, inline=True)
+        embed.add_field(name=t["field_payment"], value=payment, inline=True)
         if self.notes:
-            embed.add_field(name="📝 ملاحظات", value=self.notes, inline=False)
+            embed.add_field(name=t["field_notes"], value=self.notes, inline=False)
         embed.set_footer(text=f"ID: {interaction.user.id}")
 
         close_view = CloseTicketView(
             opener_id=self.opener_id, ticket_type="منتج",
-            product_name=self.product_name, payment_method=payment, notes=self.notes
+            product_name=self.product_name, payment_method=payment, notes=self.notes, lang=self.lang
         )
 
         self.disabled = True
@@ -266,9 +337,9 @@ class PaymentSelect(Select):
 
 
 class PaymentView(View):
-    def __init__(self, product_name: str, notes: str, opener_id: int):
+    def __init__(self, product_name: str, notes: str, opener_id: int, lang: str = "ar"):
         super().__init__(timeout=300)
-        self.add_item(PaymentSelect(product_name, notes, opener_id))
+        self.add_item(PaymentSelect(product_name, notes, opener_id, lang))
 
 
 # ─────────────────────────────────────────
@@ -279,17 +350,25 @@ class ProductModal(Modal, title="🛒 طلب منتج"):
     notes = TextInput(label="ملاحظات إضافية (اختياري)", placeholder="أي تفاصيل تانية؟", required=False,
                        style=discord.TextStyle.paragraph, max_length=500)
 
-    def __init__(self, opener_id: int):
+    def __init__(self, opener_id: int, lang: str = "ar"):
         super().__init__()
         self.opener_id = opener_id
+        self.lang = lang
+        t = TRANSLATIONS[lang]
+        self.title = t["modal_product_title"]
+        self.product_name.label = t["modal_product_name_label"]
+        self.product_name.placeholder = t["modal_product_name_placeholder"]
+        self.notes.label = t["modal_notes_label"]
+        self.notes.placeholder = t["modal_notes_placeholder"]
 
     async def on_submit(self, interaction: discord.Interaction):
+        t = TRANSLATIONS[self.lang]
         embed = discord.Embed(
-            title="💳 اختر طريقة الدفع",
-            description=f"**المنتج:** {self.product_name.value}\n\nاختر طريقة الدفع من القائمة 👇",
+            title=t["payment_prompt_title"],
+            description=t["payment_prompt_desc"].format(product=self.product_name.value),
             color=0xFFD700
         )
-        view = PaymentView(product_name=self.product_name.value, notes=self.notes.value, opener_id=self.opener_id)
+        view = PaymentView(product_name=self.product_name.value, notes=self.notes.value, opener_id=self.opener_id, lang=self.lang)
         await interaction.response.send_message(embed=embed, view=view)
 
 
@@ -300,17 +379,23 @@ class QuestionModal(Modal, title="❓ تقديم سؤال"):
     question = TextInput(label="سؤالك", placeholder="اكتب سؤالك هنا...", required=True,
                           style=discord.TextStyle.paragraph, max_length=1000)
 
-    def __init__(self, opener_id: int):
+    def __init__(self, opener_id: int, lang: str = "ar"):
         super().__init__()
         self.opener_id = opener_id
+        self.lang = lang
+        t = TRANSLATIONS[lang]
+        self.title = t["modal_question_title"]
+        self.question.label = t["modal_question_label"]
+        self.question.placeholder = t["modal_question_placeholder"]
 
     async def on_submit(self, interaction: discord.Interaction):
-        embed = discord.Embed(title="❓ سؤال جديد", color=0x5865F2, timestamp=datetime.datetime.now())
-        embed.add_field(name="👤 المستخدم", value=interaction.user.mention, inline=True)
-        embed.add_field(name="💬 السؤال", value=self.question.value, inline=False)
+        t = TRANSLATIONS[self.lang]
+        embed = discord.Embed(title=t["question_title"], color=0x5865F2, timestamp=datetime.datetime.now())
+        embed.add_field(name=t["field_user"], value=interaction.user.mention, inline=True)
+        embed.add_field(name=t["field_question_full"], value=self.question.value, inline=False)
         embed.set_footer(text=f"ID: {interaction.user.id}")
 
-        close_view = CloseTicketView(opener_id=self.opener_id, ticket_type="سؤال", question=self.question.value)
+        close_view = CloseTicketView(opener_id=self.opener_id, ticket_type="سؤال", question=self.question.value, lang=self.lang)
         await interaction.response.send_message(embed=embed, view=close_view)
 
 
@@ -318,17 +403,51 @@ class QuestionModal(Modal, title="❓ تقديم سؤال"):
 # View: اختيار نوع التذكرة
 # ─────────────────────────────────────────
 class TicketTypeView(View):
-    def __init__(self, opener_id: int):
+    def __init__(self, opener_id: int, lang: str = "ar"):
         super().__init__(timeout=300)
         self.opener_id = opener_id
+        self.lang = lang
+        t = TRANSLATIONS[lang]
+        self.product_button.label = t["btn_product"]
+        self.question_button.label = t["btn_question"]
 
     @discord.ui.button(label="🛒 طلب منتج", style=discord.ButtonStyle.success, custom_id="btn_product")
     async def product_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(ProductModal(self.opener_id))
+        await interaction.response.send_modal(ProductModal(self.opener_id, self.lang))
 
     @discord.ui.button(label="❓ سؤال", style=discord.ButtonStyle.primary, custom_id="btn_question")
     async def question_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(QuestionModal(self.opener_id))
+        await interaction.response.send_modal(QuestionModal(self.opener_id, self.lang))
+
+
+# ─────────────────────────────────────────
+# View: اختيار اللغة (تظهر أول ما تتفتح التذكرة)
+# ─────────────────────────────────────────
+class LanguageSelectView(View):
+    def __init__(self, opener_id: int):
+        super().__init__(timeout=None)
+        self.opener_id = opener_id
+
+    async def _proceed(self, interaction: discord.Interaction, lang: str):
+        ticket_language[interaction.channel.id] = lang
+        t = TRANSLATIONS[lang]
+        embed = discord.Embed(
+            title=t["welcome_title"],
+            description=t["welcome_desc"].format(mention=f"<@{self.opener_id}>"),
+            color=0xFFD700, timestamp=datetime.datetime.now()
+        )
+        embed.add_field(name=t["field_product"], value=t["field_product_desc"], inline=False)
+        embed.add_field(name=t["field_question"], value=t["field_question_desc"], inline=False)
+        embed.set_footer(text="ARC Raiders Store")
+        await interaction.response.edit_message(embed=embed, view=TicketTypeView(opener_id=self.opener_id, lang=lang))
+
+    @discord.ui.button(label="🇸🇦 العربية", style=discord.ButtonStyle.success, custom_id="lang_ar")
+    async def lang_ar(self, interaction: discord.Interaction, button: Button):
+        await self._proceed(interaction, "ar")
+
+    @discord.ui.button(label="🇬🇧 English", style=discord.ButtonStyle.primary, custom_id="lang_en")
+    async def lang_en(self, interaction: discord.Interaction, button: Button):
+        await self._proceed(interaction, "en")
 
 
 # ─────────────────────────────────────────
@@ -368,7 +487,7 @@ class OrderStatusView(View):
 # View: زر إغلاق التذكرة
 # ─────────────────────────────────────────
 class CloseTicketView(View):
-    def __init__(self, opener_id, ticket_type, product_name=None, payment_method=None, notes=None, question=None):
+    def __init__(self, opener_id, ticket_type, product_name=None, payment_method=None, notes=None, question=None, lang="ar"):
         super().__init__(timeout=None)
         self.opener_id = opener_id
         self.ticket_type = ticket_type
@@ -376,6 +495,8 @@ class CloseTicketView(View):
         self.payment_method = payment_method
         self.notes = notes
         self.question = question
+        self.lang = lang
+        self.close_button.label = TRANSLATIONS[lang]["close_button"]
 
     @discord.ui.button(label="🔒 إغلاق التذكرة", style=discord.ButtonStyle.danger, custom_id="btn_close")
     async def close_button(self, interaction: discord.Interaction, button: Button):
@@ -430,8 +551,9 @@ class CloseTicketView(View):
 
         if self.opener_id in user_tickets:
             del user_tickets[self.opener_id]
+        ticket_language.pop(channel.id, None)
 
-        await channel.send("✅ تم إغلاق التذكرة، سيتم حذف القناة خلال 5 ثواني...")
+        await channel.send(TRANSLATIONS[self.lang]["ticket_closing_msg"])
         await asyncio.sleep(5)
         await channel.delete(reason=f"تذكرة مغلقة بواسطة {interaction.user}")
 
@@ -482,16 +604,14 @@ class OpenTicketView(View):
         user_tickets[user.id] = ticket_channel.id
         register_ticket_open(user.id)
 
-        welcome_embed = discord.Embed(
-            title="🎫 مرحباً بك في نظام التذاكر",
-            description=f"أهلاً {user.mention}! 👋\n\nاختر نوع تذكرتك من الأزرار أدناه 👇",
-            color=0xFFD700, timestamp=datetime.datetime.now()
+        lang_embed = discord.Embed(
+            title="🌐 اختر لغتك | Choose your language",
+            description="الرجاء اختيار اللغة المفضلة لديك 👇\nPlease choose your preferred language 👇",
+            color=0xFFD700
         )
-        welcome_embed.add_field(name="🛒 طلب منتج", value="اطلب منتج من المتجر (سلاح، برنت، غرض...)", inline=False)
-        welcome_embed.add_field(name="❓ سؤال", value="اسأل أي سؤال عن المتجر أو اللعبة", inline=False)
-        welcome_embed.set_footer(text="ARC Raiders Store • نظام التذاكر")
+        lang_embed.set_footer(text="ARC Raiders Store")
 
-        await ticket_channel.send(content=f"{user.mention}", embed=welcome_embed, view=TicketTypeView(opener_id=user.id))
+        await ticket_channel.send(content=f"{user.mention}", embed=lang_embed, view=LanguageSelectView(opener_id=user.id))
         await interaction.response.send_message(f"✅ تم إنشاء تذكرتك! {ticket_channel.mention}", ephemeral=True)
 
 
@@ -665,6 +785,7 @@ async def on_ready():
     print(f"📡 متصل بـ {len(bot.guilds)} سيرفر")
     bot.add_view(OpenTicketView())
     bot.add_view(OrderStatusView())
+    bot.add_view(LanguageSelectView(opener_id=0))
 
 @bot.command(name="setup")
 @commands.has_permissions(administrator=True)
