@@ -6,6 +6,8 @@ import datetime
 import os
 import json
 import html
+import io
+from PIL import Image, ImageDraw
 from keep_alive import keep_alive
 
 TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
@@ -17,7 +19,8 @@ DAILY_PATH = os.path.join(os.path.dirname(__file__), "daily_tickets.json")
 TRANSCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "transcripts")
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
-WELCOME_BANNER_URL = "https://media.base44.com/images/public/6a5e7dc81979d682ad4ada2e/60f786bd3_generated_image.png"
+WELCOME_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "assets", "welcome_template.png")
+WELCOME_AVATAR_CIRCLE = (1050, 210, 95)  # (cx, cy, r) على القالب 1200x420
 
 DEFAULT_CONFIG = {
     "log_channel_id": None,
@@ -896,6 +899,27 @@ async def on_ready():
     await bot.change_presence(activity=discord.Game(name="ARC Market | Made by Ramos"))
 
 
+def build_welcome_image(avatar_bytes: bytes) -> io.BytesIO:
+    """يركّب صورة العضو الجديد دايرة فوق قالب الترحيب الجاهز."""
+    template = Image.open(WELCOME_TEMPLATE_PATH).convert("RGBA")
+    cx, cy, r = WELCOME_AVATAR_CIRCLE
+
+    avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+    size = r * 2
+    avatar = avatar.resize((size, size))
+
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size, size], fill=255)
+
+    out = template.copy()
+    out.paste(avatar, (cx - r, cy - r), mask)
+
+    buf = io.BytesIO()
+    out.convert("RGB").save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
 @bot.event
 async def on_member_join(member: discord.Member):
     guild = member.guild
@@ -903,18 +927,13 @@ async def on_member_join(member: discord.Member):
     if not channel:
         return
 
-    embed = discord.Embed(
-        title="🎉 عضو جديد انضم للسيرفر!",
-        description=f"أهلاً بيك {member.mention} في **{guild.name}**! 🎮\nاتمنى تقضي وقت حلو معانا 🔥",
-        color=0x5865F2,
-        timestamp=datetime.datetime.now()
-    )
-    embed.set_image(url=WELCOME_BANNER_URL)
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.set_footer(text=f"عضو رقم #{guild.member_count} • Made by Ramos")
-
     try:
-        await channel.send(content=f"{member.mention}", embed=embed)
+        avatar_bytes = await member.display_avatar.replace(size=256, format="png").read()
+        image_buf = build_welcome_image(avatar_bytes)
+        file = discord.File(fp=image_buf, filename="welcome.png")
+        embed = discord.Embed(color=0x5865F2)
+        embed.set_image(url="attachment://welcome.png")
+        await channel.send(content=f"{member.mention}", embed=embed, file=file)
     except Exception as e:
         print(f"⚠️ فشل إرسال رسالة الترحيب: {e}")
 
