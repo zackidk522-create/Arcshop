@@ -17,11 +17,15 @@ DAILY_PATH = os.path.join(os.path.dirname(__file__), "daily_tickets.json")
 TRANSCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "transcripts")
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
+WELCOME_BANNER_URL = "https://media.base44.com/images/public/6a5e7dc81979d682ad4ada2e/60f786bd3_generated_image.png"
+
 DEFAULT_CONFIG = {
     "log_channel_id": None,
     "log_channel_name": "arc-orders",
     "orders_channel_id": None,
     "orders_channel_name": "arc-requests",
+    "welcome_channel_id": None,
+    "welcome_channel_name": "welcome",
     "category_id": DEFAULT_TICKET_CATEGORY_ID,
     "max_tickets_per_day": 5,
     "transcript_enabled": True,
@@ -67,6 +71,14 @@ def get_orders_channel(guild):
             return ch
     return discord.utils.get(guild.text_channels, name=cfg["orders_channel_name"])
 
+def get_welcome_channel(guild):
+    cfg = load_config()
+    if cfg.get("welcome_channel_id"):
+        ch = guild.get_channel(cfg["welcome_channel_id"])
+        if ch:
+            return ch
+    return discord.utils.get(guild.text_channels, name=cfg["welcome_channel_name"])
+
 config = load_config()
 
 intents = discord.Intents.default()
@@ -87,6 +99,14 @@ PAYMENT_METHODS = [
     discord.SelectOption(label="كليك",         value="كليك",         emoji=discord.PartialEmoji.from_str("<:Click:1528928605445558292>")),
     discord.SelectOption(label="موبايلي",      value="موبايلي",      emoji=discord.PartialEmoji.from_str("<:Mobily:1528928665943937264>")),
     discord.SelectOption(label="STC Pay",      value="STC Pay",      emoji=discord.PartialEmoji.from_str("<:Stcpay:1528928726581248242>")),
+]
+
+CRYPTO_OPTIONS = [
+    discord.SelectOption(label="USDT", value="USDT", emoji="🪙"),
+    discord.SelectOption(label="BTC",  value="BTC",  emoji="🟠"),
+    discord.SelectOption(label="ETH",  value="ETH",  emoji="🔷"),
+    discord.SelectOption(label="SOL",  value="SOL",  emoji="🟣"),
+    discord.SelectOption(label="USDC", value="USDC", emoji="🔵"),
 ]
 
 # ─────────────────────────────────────────
@@ -297,6 +317,72 @@ async def generate_transcript(channel: discord.TextChannel) -> str:
 # ─────────────────────────────────────────
 # Select: اختيار طريقة الدفع
 # ─────────────────────────────────────────
+async def finalize_product_order(interaction: discord.Interaction, product_name: str, price: str,
+                                  payment_label: str, notes: str, opener_id: int, lang: str):
+    t = TRANSLATIONS[lang]
+
+    embed = discord.Embed(title=t["product_order_title"], color=0x00ff99, timestamp=datetime.datetime.now())
+    embed.add_field(name=t["field_user"], value=interaction.user.mention, inline=True)
+    embed.add_field(name=t["field_product_name"], value=product_name, inline=True)
+    embed.add_field(name=t["field_price"], value=price, inline=True)
+    embed.add_field(name=t["field_payment"], value=payment_label, inline=True)
+    if notes:
+        embed.add_field(name=t["field_notes"], value=notes, inline=False)
+    embed.set_footer(text=f"ID: {interaction.user.id}")
+
+    close_view = CloseTicketView(
+        opener_id=opener_id, ticket_type="منتج",
+        product_name=product_name, price=price, payment_method=payment_label, notes=notes, lang=lang
+    )
+
+    await interaction.channel.send(embed=embed, view=close_view)
+
+    # ── نشر الطلب في قناة "الطلبات" مع حالة قابلة للتحديث ──
+    orders_channel = get_orders_channel(interaction.guild)
+    if orders_channel:
+        order_embed = discord.Embed(title="🆕 طلب جديد", color=0xFFD700, timestamp=datetime.datetime.now())
+        order_embed.add_field(name="👤 العميل", value=interaction.user.mention, inline=True)
+        order_embed.add_field(name="📦 المنتج", value=product_name, inline=True)
+        order_embed.add_field(name="💰 السعر", value=price, inline=True)
+        order_embed.add_field(name="💳 طريقة الدفع", value=payment_label, inline=True)
+        order_embed.add_field(name="📊 الحالة", value="🔄 قيد الإنشاء", inline=True)
+        if notes:
+            order_embed.add_field(name="📝 ملاحظات", value=notes, inline=False)
+        order_embed.add_field(name="🎫 التذكرة", value=interaction.channel.mention, inline=False)
+        order_embed.set_footer(text=f"ID: {interaction.user.id}")
+        await orders_channel.send(embed=order_embed, view=OrderStatusView())
+
+
+# ─────────────────────────────────────────
+# Select: اختيار نوع الكريبتو (لما يختار العميل الدفع بالكريبتو)
+# ─────────────────────────────────────────
+class CryptoSelect(Select):
+    def __init__(self, product_name: str, price: str, notes: str, opener_id: int, lang: str = "ar"):
+        self.lang = lang
+        self.product_name = product_name
+        self.price = price
+        self.notes = notes
+        self.opener_id = opener_id
+        placeholder = "اختر نوع العملة الرقمية..." if lang == "ar" else "Choose crypto currency..."
+        super().__init__(placeholder=placeholder, options=CRYPTO_OPTIONS, custom_id="crypto_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        crypto = self.values[0]
+        payment_label = f"كريبتو ({crypto})" if self.lang == "ar" else f"Crypto ({crypto})"
+
+        self.disabled = True
+        await interaction.response.edit_message(view=self.view)
+        await finalize_product_order(
+            interaction, self.product_name, self.price, payment_label, self.notes, self.opener_id, self.lang
+        )
+
+
+class CryptoView(View):
+    def __init__(self, product_name: str, price: str, notes: str, opener_id: int, lang: str = "ar"):
+        super().__init__(timeout=300)
+        self.add_item(CryptoSelect(product_name, price, notes, opener_id, lang))
+
+
 class PaymentSelect(Select):
     def __init__(self, product_name: str, price: str, notes: str, opener_id: int, lang: str = "ar"):
         self.lang = lang
@@ -309,40 +395,22 @@ class PaymentSelect(Select):
 
     async def callback(self, interaction: discord.Interaction):
         payment = self.values[0]
-        t = TRANSLATIONS[self.lang]
-
-        embed = discord.Embed(title=t["product_order_title"], color=0x00ff99, timestamp=datetime.datetime.now())
-        embed.add_field(name=t["field_user"], value=interaction.user.mention, inline=True)
-        embed.add_field(name=t["field_product_name"], value=self.product_name, inline=True)
-        embed.add_field(name=t["field_price"], value=self.price, inline=True)
-        embed.add_field(name=t["field_payment"], value=payment, inline=True)
-        if self.notes:
-            embed.add_field(name=t["field_notes"], value=self.notes, inline=False)
-        embed.set_footer(text=f"ID: {interaction.user.id}")
-
-        close_view = CloseTicketView(
-            opener_id=self.opener_id, ticket_type="منتج",
-            product_name=self.product_name, price=self.price, payment_method=payment, notes=self.notes, lang=self.lang
-        )
-
         self.disabled = True
-        await interaction.response.edit_message(view=self.view)
-        await interaction.channel.send(embed=embed, view=close_view)
 
-        # ── نشر الطلب في قناة "الطلبات" مع حالة قابلة للتحديث ──
-        orders_channel = get_orders_channel(interaction.guild)
-        if orders_channel:
-            order_embed = discord.Embed(title="🆕 طلب جديد", color=0xFFD700, timestamp=datetime.datetime.now())
-            order_embed.add_field(name="👤 العميل", value=interaction.user.mention, inline=True)
-            order_embed.add_field(name="📦 المنتج", value=self.product_name, inline=True)
-            order_embed.add_field(name="💰 السعر", value=self.price, inline=True)
-            order_embed.add_field(name="💳 طريقة الدفع", value=payment, inline=True)
-            order_embed.add_field(name="📊 الحالة", value="🔄 قيد الإنشاء", inline=True)
-            if self.notes:
-                order_embed.add_field(name="📝 ملاحظات", value=self.notes, inline=False)
-            order_embed.add_field(name="🎫 التذكرة", value=interaction.channel.mention, inline=False)
-            order_embed.set_footer(text=f"ID: {interaction.user.id}")
-            await orders_channel.send(embed=order_embed, view=OrderStatusView())
+        if payment == "كريبتو":
+            crypto_prompt = (
+                "🪙 اختر نوع العملة الرقمية اللي هتدفع بيها 👇" if self.lang == "ar"
+                else "🪙 Choose the crypto currency you'll pay with 👇"
+            )
+            embed = discord.Embed(description=crypto_prompt, color=0xFFD700)
+            crypto_view = CryptoView(self.product_name, self.price, self.notes, self.opener_id, self.lang)
+            await interaction.response.edit_message(embed=embed, view=crypto_view)
+            return
+
+        await interaction.response.edit_message(view=self.view)
+        await finalize_product_order(
+            interaction, self.product_name, self.price, payment, self.notes, self.opener_id, self.lang
+        )
 
 
 class PaymentView(View):
@@ -712,12 +780,32 @@ class OrdersChannelSelect(discord.ui.ChannelSelect):
         await self.setup_view.refresh(interaction)
 
 
+class WelcomeChannelSelect(discord.ui.ChannelSelect):
+    def __init__(self, setup_view):
+        super().__init__(
+            placeholder="👋 اختر قناة الترحيب بالأعضاء الجدد...",
+            channel_types=[discord.ChannelType.text],
+            custom_id="welcome_channel_select",
+            row=3
+        )
+        self.setup_view = setup_view
+
+    async def callback(self, interaction: discord.Interaction):
+        cfg = load_config()
+        ch = self.values[0]
+        cfg["welcome_channel_id"] = ch.id
+        cfg["welcome_channel_name"] = ch.name
+        save_config(cfg)
+        await self.setup_view.refresh(interaction)
+
+
 class SetupView(View):
     def __init__(self):
         super().__init__(timeout=600)
         self.add_item(CategorySelect(self))
         self.add_item(LogChannelSelect(self))
         self.add_item(OrdersChannelSelect(self))
+        self.add_item(WelcomeChannelSelect(self))
         self.update_labels()
 
     def update_labels(self):
@@ -736,18 +824,20 @@ class SetupView(View):
         category = guild.get_channel(cfg["category_id"]) if cfg.get("category_id") else None
         log_channel = get_log_channel(guild)
         orders_channel = get_orders_channel(guild)
+        welcome_channel = get_welcome_channel(guild)
 
         embed = discord.Embed(title="⚙️ إعدادات نظام التذاكر", color=0x5865F2)
         embed.add_field(name="📁 كاتيجوري التذاكر", value=category.name if category else "❌ غير محدد", inline=True)
         embed.add_field(name="📋 قناة السجل", value=log_channel.mention if log_channel else "❌ غير محدد", inline=True)
         embed.add_field(name="🧾 روم الطلبات", value=orders_channel.mention if orders_channel else "❌ غير محدد", inline=True)
+        embed.add_field(name="👋 قناة الترحيب", value=welcome_channel.mention if welcome_channel else "❌ غير محدد", inline=True)
         embed.add_field(name="🔢 الحد اليومي للتذاكر", value=f"{cfg['max_tickets_per_day']} تذاكر/يوم", inline=True)
         embed.add_field(
             name="📄 تسجيل المحادثة الكامل",
             value="✅ مفعّل" if cfg.get("transcript_enabled", True) else "❌ معطّل",
             inline=True
         )
-        embed.set_footer(text="اضبط كل الإعدادات، ثم اضغط 'نشر رسالة فتح التذاكر' في القناة اللي تبيها")
+        embed.set_footer(text="اضبط كل الإعدادات، ثم اضغط 'نشر رسالة فتح التذاكر' في القناة اللي تبيها\n🛠️ Made by Ramos")
         return embed
 
     async def refresh(self, interaction: discord.Interaction):
@@ -758,14 +848,14 @@ class SetupView(View):
         else:
             await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="📄 تعطيل تسجيل المحادثة", style=discord.ButtonStyle.danger, row=3)
+    @discord.ui.button(label="📄 تعطيل تسجيل المحادثة", style=discord.ButtonStyle.danger, row=4)
     async def toggle_transcript(self, interaction: discord.Interaction, button: Button):
         cfg = load_config()
         cfg["transcript_enabled"] = not cfg.get("transcript_enabled", True)
         save_config(cfg)
         await self.refresh(interaction)
 
-    @discord.ui.button(label="🔢 الحد اليومي", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="🔢 الحد اليومي", style=discord.ButtonStyle.secondary, row=4)
     async def set_limit(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(DailyLimitModal(self))
 
@@ -803,6 +893,30 @@ async def on_ready():
     bot.add_view(OpenTicketView())
     bot.add_view(OrderStatusView())
     bot.add_view(LanguageSelectView(opener_id=0))
+    await bot.change_presence(activity=discord.Game(name="ARC Market | Made by Ramos"))
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    guild = member.guild
+    channel = get_welcome_channel(guild)
+    if not channel:
+        return
+
+    embed = discord.Embed(
+        title="🎉 عضو جديد انضم للسيرفر!",
+        description=f"أهلاً بيك {member.mention} في **{guild.name}**! 🎮\nاتمنى تقضي وقت حلو معانا 🔥",
+        color=0x5865F2,
+        timestamp=datetime.datetime.now()
+    )
+    embed.set_image(url=WELCOME_BANNER_URL)
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"عضو رقم #{guild.member_count} • Made by Ramos")
+
+    try:
+        await channel.send(content=f"{member.mention}", embed=embed)
+    except Exception as e:
+        print(f"⚠️ فشل إرسال رسالة الترحيب: {e}")
 
 @bot.command(name="setup")
 @commands.has_permissions(administrator=True)
