@@ -79,14 +79,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 user_tickets = {}  # user_id -> channel_id
 
 PAYMENT_METHODS = [
-    discord.SelectOption(label="إنستا باي",   value="انستا باي",   emoji="📱"),
-    discord.SelectOption(label="فودافون كاش", value="فودافون كاش", emoji="💚"),
-    discord.SelectOption(label="فيزا",         value="فيزا",         emoji="💳"),
-    discord.SelectOption(label="باي بال",      value="باي بال",      emoji="🅿️"),
-    discord.SelectOption(label="كريبتو",       value="كريبتو",       emoji="🪙"),
-    discord.SelectOption(label="كليك",         value="كليك",         emoji="🖱️"),
-    discord.SelectOption(label="موبايلي",      value="موبايلي",      emoji="📲"),
-    discord.SelectOption(label="STC Pay",      value="STC Pay",      emoji="🟢"),
+    discord.SelectOption(label="إنستا باي",   value="انستا باي",   emoji=discord.PartialEmoji.from_str("<:ENSTAPAY:1528927174713937940>")),
+    discord.SelectOption(label="فودافون كاش", value="فودافون كاش", emoji=discord.PartialEmoji.from_str("<:Vodafonecash:1528928189198504116>")),
+    discord.SelectOption(label="فيزا",         value="فيزا",         emoji=discord.PartialEmoji.from_str("<:VISA:1528928315958755448>")),
+    discord.SelectOption(label="باي بال",      value="باي بال",      emoji=discord.PartialEmoji.from_str("<:PayPal:1528928392194555955>")),
+    discord.SelectOption(label="كريبتو",       value="كريبتو",       emoji=discord.PartialEmoji.from_str("<:CRYPTO:1528928509450387537>")),
+    discord.SelectOption(label="كليك",         value="كليك",         emoji=discord.PartialEmoji.from_str("<:Click:1528928605445558292>")),
+    discord.SelectOption(label="موبايلي",      value="موبايلي",      emoji=discord.PartialEmoji.from_str("<:Mobily:1528928665943937264>")),
+    discord.SelectOption(label="STC Pay",      value="STC Pay",      emoji=discord.PartialEmoji.from_str("<:Stcpay:1528928726581248242>")),
 ]
 
 # ─────────────────────────────────────────
@@ -105,6 +105,8 @@ TRANSLATIONS = {
         "modal_product_title": "🛒 طلب منتج",
         "modal_product_name_label": "اسم المنتج",
         "modal_product_name_placeholder": "مثال: سلاح، غرض، برنت...",
+        "modal_price_label": "السعر",
+        "modal_price_placeholder": "مثال: 100 جنيه",
         "modal_notes_label": "ملاحظات إضافية (اختياري)",
         "modal_notes_placeholder": "أي تفاصيل تانية؟",
         "modal_question_title": "❓ تقديم سؤال",
@@ -116,6 +118,7 @@ TRANSLATIONS = {
         "product_order_title": "🛒 طلب منتج جديد",
         "field_user": "👤 المستخدم",
         "field_product_name": "📦 المنتج",
+        "field_price": "💰 السعر",
         "field_payment": "💳 طريقة الدفع",
         "field_notes": "📝 ملاحظات",
         "question_title": "❓ سؤال جديد",
@@ -135,6 +138,8 @@ TRANSLATIONS = {
         "modal_product_title": "🛒 Order a Product",
         "modal_product_name_label": "Product Name",
         "modal_product_name_placeholder": "e.g: weapon, item, print...",
+        "modal_price_label": "Price",
+        "modal_price_placeholder": "e.g: 100 EGP",
         "modal_notes_label": "Additional Notes (optional)",
         "modal_notes_placeholder": "Any other details?",
         "modal_question_title": "❓ Ask a Question",
@@ -146,6 +151,7 @@ TRANSLATIONS = {
         "product_order_title": "🛒 New Product Order",
         "field_user": "👤 Customer",
         "field_product_name": "📦 Product",
+        "field_price": "💰 Price",
         "field_payment": "💳 Payment Method",
         "field_notes": "📝 Notes",
         "question_title": "❓ New Question",
@@ -292,11 +298,12 @@ async def generate_transcript(channel: discord.TextChannel) -> str:
 # Select: اختيار طريقة الدفع
 # ─────────────────────────────────────────
 class PaymentSelect(Select):
-    def __init__(self, product_name: str, notes: str, opener_id: int, lang: str = "ar"):
+    def __init__(self, product_name: str, price: str, notes: str, opener_id: int, lang: str = "ar"):
         self.lang = lang
         t = TRANSLATIONS[lang]
         super().__init__(placeholder=t["payment_placeholder"], options=PAYMENT_METHODS, custom_id="payment_select")
         self.product_name = product_name
+        self.price = price
         self.notes = notes
         self.opener_id = opener_id
 
@@ -307,6 +314,7 @@ class PaymentSelect(Select):
         embed = discord.Embed(title=t["product_order_title"], color=0x00ff99, timestamp=datetime.datetime.now())
         embed.add_field(name=t["field_user"], value=interaction.user.mention, inline=True)
         embed.add_field(name=t["field_product_name"], value=self.product_name, inline=True)
+        embed.add_field(name=t["field_price"], value=self.price, inline=True)
         embed.add_field(name=t["field_payment"], value=payment, inline=True)
         if self.notes:
             embed.add_field(name=t["field_notes"], value=self.notes, inline=False)
@@ -314,7 +322,7 @@ class PaymentSelect(Select):
 
         close_view = CloseTicketView(
             opener_id=self.opener_id, ticket_type="منتج",
-            product_name=self.product_name, payment_method=payment, notes=self.notes, lang=self.lang
+            product_name=self.product_name, price=self.price, payment_method=payment, notes=self.notes, lang=self.lang
         )
 
         self.disabled = True
@@ -327,6 +335,7 @@ class PaymentSelect(Select):
             order_embed = discord.Embed(title="🆕 طلب جديد", color=0xFFD700, timestamp=datetime.datetime.now())
             order_embed.add_field(name="👤 العميل", value=interaction.user.mention, inline=True)
             order_embed.add_field(name="📦 المنتج", value=self.product_name, inline=True)
+            order_embed.add_field(name="💰 السعر", value=self.price, inline=True)
             order_embed.add_field(name="💳 طريقة الدفع", value=payment, inline=True)
             order_embed.add_field(name="📊 الحالة", value="🔄 قيد الإنشاء", inline=True)
             if self.notes:
@@ -337,9 +346,9 @@ class PaymentSelect(Select):
 
 
 class PaymentView(View):
-    def __init__(self, product_name: str, notes: str, opener_id: int, lang: str = "ar"):
+    def __init__(self, product_name: str, price: str, notes: str, opener_id: int, lang: str = "ar"):
         super().__init__(timeout=300)
-        self.add_item(PaymentSelect(product_name, notes, opener_id, lang))
+        self.add_item(PaymentSelect(product_name, price, notes, opener_id, lang))
 
 
 # ─────────────────────────────────────────
@@ -347,6 +356,7 @@ class PaymentView(View):
 # ─────────────────────────────────────────
 class ProductModal(Modal, title="🛒 طلب منتج"):
     product_name = TextInput(label="اسم المنتج", placeholder="مثال: سلاح، غرض، برنت...", required=True, max_length=200)
+    price = TextInput(label="السعر", placeholder="مثال: 100 جنيه", required=True, max_length=100)
     notes = TextInput(label="ملاحظات إضافية (اختياري)", placeholder="أي تفاصيل تانية؟", required=False,
                        style=discord.TextStyle.paragraph, max_length=500)
 
@@ -358,6 +368,8 @@ class ProductModal(Modal, title="🛒 طلب منتج"):
         self.title = t["modal_product_title"]
         self.product_name.label = t["modal_product_name_label"]
         self.product_name.placeholder = t["modal_product_name_placeholder"]
+        self.price.label = t["modal_price_label"]
+        self.price.placeholder = t["modal_price_placeholder"]
         self.notes.label = t["modal_notes_label"]
         self.notes.placeholder = t["modal_notes_placeholder"]
 
@@ -368,7 +380,10 @@ class ProductModal(Modal, title="🛒 طلب منتج"):
             description=t["payment_prompt_desc"].format(product=self.product_name.value),
             color=0xFFD700
         )
-        view = PaymentView(product_name=self.product_name.value, notes=self.notes.value, opener_id=self.opener_id, lang=self.lang)
+        view = PaymentView(
+            product_name=self.product_name.value, price=self.price.value,
+            notes=self.notes.value, opener_id=self.opener_id, lang=self.lang
+        )
         await interaction.response.send_message(embed=embed, view=view)
 
 
@@ -487,11 +502,12 @@ class OrderStatusView(View):
 # View: زر إغلاق التذكرة
 # ─────────────────────────────────────────
 class CloseTicketView(View):
-    def __init__(self, opener_id, ticket_type, product_name=None, payment_method=None, notes=None, question=None, lang="ar"):
+    def __init__(self, opener_id, ticket_type, product_name=None, price=None, payment_method=None, notes=None, question=None, lang="ar"):
         super().__init__(timeout=None)
         self.opener_id = opener_id
         self.ticket_type = ticket_type
         self.product_name = product_name
+        self.price = price
         self.payment_method = payment_method
         self.notes = notes
         self.question = question
@@ -533,6 +549,7 @@ class CloseTicketView(View):
 
         if self.ticket_type == "منتج":
             embed.add_field(name="📦 المنتج", value=self.product_name or "—", inline=True)
+            embed.add_field(name="💰 السعر", value=self.price or "—", inline=True)
             embed.add_field(name="💳 طريقة الدفع", value=self.payment_method or "—", inline=True)
             if self.notes:
                 embed.add_field(name="📝 ملاحظات", value=self.notes, inline=False)
