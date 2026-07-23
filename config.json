@@ -9,5 +9,7 @@
   "orders_channel_id": null,
   "orders_channel_name": null,
   "welcome_channel_id": null,
-  "welcome_channel_name": null
+  "welcome_channel_name": null,
+  "media_channel_id": null,
+  "media_channel_name": null
 }
