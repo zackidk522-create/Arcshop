@@ -139,6 +139,24 @@ def post_stock_to_discord():
         return False, str(e)
 
 
+async def _get_text_channels_async():
+    if not _bot.guilds:
+        return []
+    guild = _bot.guilds[0]
+    return [(c.id, c.name) for c in guild.text_channels]
+
+
+def get_guild_text_channels():
+    """يرجع قائمة (id, name) لكل قنوات السيرفر النصية — عشان نعرضها كقائمة اختيار بدل كتابة الـ ID يدوياً."""
+    if _bot is None or _bot.loop is None:
+        return []
+    future = asyncio.run_coroutine_threadsafe(_get_text_channels_async(), _bot.loop)
+    try:
+        return future.result(timeout=10)
+    except Exception:
+        return []
+
+
 def build_sales_chart_data(days=7):
     """يرجع إحصائيات آخر N يوم من orders_log.json: عدد الطلبات لكل يوم + إجمالي/مكتمل/قيد الإنشاء."""
     log = load_orders_log()
@@ -220,11 +238,26 @@ BASE_STYLE = """
   .bar { width: 70%; background: linear-gradient(180deg, #e6c877, #8a6a2a); border-radius: 4px 4px 0 0; min-height: 3px; }
   .bar-count { font-size: 11px; color: #e6c877; margin-bottom: 3px; }
   .bar-label { font-size: 11px; color: #cbb9ea; margin-top: 5px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table { min-width: 560px; }
+  @media (max-width: 600px) {
+    .wrap { padding: 16px 10px; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 16px; }
+    .card { padding: 14px; }
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    .stat-tiles { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .stat-tile { padding: 8px; }
+    .stat-tile .num { font-size: 18px; }
+    .stat-tile .lbl { font-size: 10px; }
+    button { width: 100%; padding: 12px; font-size: 14px; }
+    .chart { height: 100px; }
+  }
 </style>
 """
 
 LOGIN_PAGE = f"""
-<!DOCTYPE html><html lang="ar"><head><meta charset="utf-8"><title>ARC Market Dashboard</title>{BASE_STYLE}</head>
+<!DOCTYPE html><html lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>ARC Market Dashboard</title>{BASE_STYLE}</head>
 <body><div class="wrap" style="max-width:400px; margin-top:80px;">
 <div class="card">
   <h1 style="text-align:center;">🛒 WRC Store</h1>
@@ -239,7 +272,7 @@ LOGIN_PAGE = f"""
 """
 
 DASHBOARD_PAGE = f"""
-<!DOCTYPE html><html lang="ar"><head><meta charset="utf-8"><title>ARC Market Dashboard</title>{BASE_STYLE}</head>
+<!DOCTYPE html><html lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>ARC Market Dashboard</title>{BASE_STYLE}</head>
 <body><div class="wrap">
   <h1>🛒 WRC Store — لوحة التحكم</h1>
   <p><a href="{{{{ url_for('logout') }}}}">🚪 تسجيل خروج</a></p>
@@ -286,8 +319,13 @@ DASHBOARD_PAGE = f"""
         <input type="checkbox" name="transcript_enabled" style="width:auto;" {{{{ 'checked' if cfg.get('transcript_enabled') else '' }}}}>
         تفعيل تسجيل المحادثة
       </label>
-      <label style="margin-top:10px;">قناة المخزون (ID) — نفس الـ ID اللي تشوفه في ديسكورد (Developer Mode)</label>
-      <input type="text" name="stock_channel_id" value="{{{{ cfg.get('stock_channel_id') or '' }}}}" placeholder="مثال: 1234567890">
+      <label style="margin-top:10px;">قناة المخزون</label>
+      <select name="stock_channel_id">
+        <option value="">-- اختر القناة --</option>
+        {{% for cid, cname in channels %}}
+        <option value="{{{{ cid }}}}" {{{{ 'selected' if cfg.get('stock_channel_id') == cid else '' }}}}>#{{{{ cname }}}}</option>
+        {{% endfor %}}
+      </select>
       <button type="submit">💾 حفظ الإعدادات</button>
     </form>
     <form method="POST" action="{{{{ url_for('refresh_stock_route') }}}}" style="margin-top:10px;">
@@ -316,7 +354,7 @@ DASHBOARD_PAGE = f"""
   {{% for cat in categories %}}
   <div class="card">
     <h3 style="margin-top:0; color:#e6c877;">{{{{ cat.name }}}} <span class="badge">{{{{ cat['items']|length }}}} غرض</span></h3>
-    <table>
+    <div class="table-scroll"><table>
       <tr><th></th><th>الاسم</th><th>SAR</th><th>USD</th><th>EUR</th><th>EGP</th><th>JOD</th><th></th></tr>
       {{% for item in cat['items'] %}}
       <tr>
@@ -336,7 +374,7 @@ DASHBOARD_PAGE = f"""
         </td>
       </tr>
       {{% endfor %}}
-    </table>
+    </table></div>
   </div>
   {{% endfor %}}
 
@@ -382,7 +420,8 @@ def dashboard():
     cfg = load_config()
     products = load_products()
     sales = build_sales_chart_data()
-    return render_template_string(DASHBOARD_PAGE, cfg=cfg, categories=products.get("categories", []), sales=sales)
+    channels = get_guild_text_channels()
+    return render_template_string(DASHBOARD_PAGE, cfg=cfg, categories=products.get("categories", []), sales=sales, channels=channels)
 
 
 @app.route("/dashboard/settings", methods=["POST"])
