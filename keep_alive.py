@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import datetime
 from flask import Flask, request, session, redirect, url_for, render_template_string, flash
 from threading import Thread
 
@@ -12,6 +13,7 @@ DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "admin123")
 BASE_DIR = os.path.dirname(__file__)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 PRODUCTS_PATH = os.path.join(BASE_DIR, "products.json")
+ORDERS_LOG_PATH = os.path.join(BASE_DIR, "orders_log.json")
 
 _bot = None  # يتحدد لاحقاً من bot.py عن طريق keep_alive(bot)
 
@@ -49,6 +51,10 @@ def save_products(data):
     save_json(PRODUCTS_PATH, data)
 
 
+def load_orders_log():
+    return load_json(ORDERS_LOG_PATH, [])
+
+
 def format_price_line(prices):
     flags = {"SAR": "🇸🇦", "USD": "🇺🇸", "EUR": "🇪🇺", "EGP": "🇪🇬", "JOD": "🇯🇴"}
     parts = []
@@ -59,30 +65,41 @@ def format_price_line(prices):
     return "\n".join(parts)
 
 
-def build_stock_embeds_dict():
-    """يبني قائمة embeds بنفس شكل الكتالوج اللي في بوت ديسكورد."""
+def build_stock_messages():
+    """نفس منطق بوت ديسكورد: رسالة هيدر، ثم رسالة لكل كاتيجوري (embed رأسي + embed لكل غرض بصورته)، ثم رسالة فوتر."""
     import discord
     data = load_products()
-    embeds = []
+    messages = []
+
     header = discord.Embed(
         title="🛒 WRC STORE",
         description="⚔️ **ARC RAIDERS MARKET**\n> 💎 Premium Items • Fast Delivery • Trusted Service",
         color=0xFFD700
     )
-    embeds.append(header)
+    messages.append([header])
+
     for cat in data.get("categories", []):
-        embed = discord.Embed(title=cat["name"], color=0x5865F2)
-        for item in cat.get("items", []):
-            embed.add_field(name=item["name"], value=format_price_line(item["prices"]), inline=True)
-        if not cat.get("items"):
-            embed.description = "لا يوجد أغراض حالياً"
-        embeds.append(embed)
+        cat_embeds = [discord.Embed(title=cat["name"], color=0xFFD700)]
+        items = cat.get("items", [])
+        if not items:
+            cat_embeds[0].description = "لا يوجد أغراض حالياً"
+        for item in items[:9]:
+            item_embed = discord.Embed(
+                title=f"🖼️ {item['name']}",
+                description=format_price_line(item["prices"]),
+                color=0x5865F2
+            )
+            if item.get("image_url"):
+                item_embed.set_thumbnail(url=item["image_url"])
+            cat_embeds.append(item_embed)
+        messages.append(cat_embeds)
+
     footer = discord.Embed(
         description="✅ Trusted Seller  •  ⚡ Instant Delivery  •  💎 Best Prices\n🎮 WRC STORE • Made by Ramos",
         color=0x2ecc71
     )
-    embeds.append(footer)
-    return embeds
+    messages.append([footer])
+    return messages
 
 
 async def _post_stock_async():
@@ -93,17 +110,22 @@ async def _post_stock_async():
     channel = _bot.get_channel(channel_id)
     if channel is None:
         return False, "مش لاقي القناة، تأكد إن البوت عضو فيها"
-    embeds = build_stock_embeds_dict()
-    if cfg.get("stock_message_id"):
+
+    for old_id in cfg.get("stock_message_ids", []):
         try:
-            old_msg = await channel.fetch_message(cfg["stock_message_id"])
+            old_msg = await channel.fetch_message(old_id)
             await old_msg.delete()
         except Exception:
             pass
-    msg = await channel.send(embeds=embeds)
-    cfg["stock_message_id"] = msg.id
+
+    new_ids = []
+    for embeds in build_stock_messages():
+        msg = await channel.send(embeds=embeds)
+        new_ids.append(msg.id)
+
+    cfg["stock_message_ids"] = new_ids
     save_config(cfg)
-    return True, f"تم التحديث في #{channel.name}"
+    return True, f"تم نشر الكتالوج في #{channel.name} ({len(new_ids)} رسالة)"
 
 
 def post_stock_to_discord():
@@ -112,9 +134,44 @@ def post_stock_to_discord():
         return False, "البوت مش شغال حالياً"
     future = asyncio.run_coroutine_threadsafe(_post_stock_async(), _bot.loop)
     try:
-        return future.result(timeout=15)
+        return future.result(timeout=30)
     except Exception as e:
         return False, str(e)
+
+
+def build_sales_chart_data(days=7):
+    """يرجع إحصائيات آخر N يوم من orders_log.json: عدد الطلبات لكل يوم + إجمالي/مكتمل/قيد الإنشاء."""
+    log = load_orders_log()
+    today = datetime.date.today()
+    day_keys = [(today - datetime.timedelta(days=i)) for i in range(days - 1, -1, -1)]
+    counts = {d.isoformat(): 0 for d in day_keys}
+
+    total = len(log)
+    completed = 0
+    in_progress = 0
+
+    for entry in log:
+        status = entry.get("status", "")
+        if status == "تم":
+            completed += 1
+        else:
+            in_progress += 1
+        try:
+            created = datetime.datetime.fromisoformat(entry["created_at"]).date()
+            key = created.isoformat()
+            if key in counts:
+                counts[key] += 1
+        except Exception:
+            continue
+
+    max_count = max(counts.values()) if counts.values() else 0
+    bars = []
+    for key in sorted(counts.keys()):
+        d = datetime.date.fromisoformat(key)
+        height_pct = int((counts[key] / max_count) * 100) if max_count else 0
+        bars.append({"label": f"{d.day}/{d.month}", "count": counts[key], "height": max(height_pct, 4 if counts[key] else 0)})
+
+    return {"bars": bars, "total": total, "completed": completed, "in_progress": in_progress}
 
 
 # ───────────────────────── HTML ─────────────────────────
@@ -146,13 +203,23 @@ BASE_STYLE = """
   button:hover { opacity: 0.9; }
   .danger { background: linear-gradient(135deg, #e05a5a, #b33a3a); color: #fff; }
   table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-  th, td { padding: 8px; border-bottom: 1px solid #4a3a6a; text-align: right; font-size: 14px; }
+  th, td { padding: 8px; border-bottom: 1px solid #4a3a6a; text-align: right; font-size: 14px; vertical-align: middle; }
   th { color: #e6c877; }
   .badge { background: #2ecc71; color: #0a0810; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
   a { color: #e6c877; }
   .flash { background: #2ecc71; color: #0a0810; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-weight: bold; }
   .flash.error { background: #e05a5a; color: #fff; }
+  .thumb { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; border: 1px solid #5a4a7a; }
+  .stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 15px; }
+  .stat-tile { background: rgba(20,15,32,0.8); border: 1px solid #4a3a6a; border-radius: 10px; padding: 14px; text-align: center; }
+  .stat-tile .num { font-size: 26px; font-weight: bold; color: #e6c877; }
+  .stat-tile .lbl { font-size: 12px; color: #cbb9ea; margin-top: 4px; }
+  .chart { display: flex; align-items: flex-end; gap: 8px; height: 140px; padding: 10px 0; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+  .bar { width: 70%; background: linear-gradient(180deg, #e6c877, #8a6a2a); border-radius: 4px 4px 0 0; min-height: 3px; }
+  .bar-count { font-size: 11px; color: #e6c877; margin-bottom: 3px; }
+  .bar-label { font-size: 11px; color: #cbb9ea; margin-top: 5px; }
 </style>
 """
 
@@ -183,8 +250,27 @@ DASHBOARD_PAGE = f"""
     {{% endfor %}}
   {{% endwith %}}
 
+  <h2 style="margin-top:0;">📊 نظرة عامة على الطلبات</h2>
   <div class="card">
-    <h2 style="margin-top:0;">⚙️ الإعدادات الحالية</h2>
+    <div class="stat-tiles">
+      <div class="stat-tile"><div class="num">{{{{ sales.total }}}}</div><div class="lbl">إجمالي الطلبات</div></div>
+      <div class="stat-tile"><div class="num">{{{{ sales.completed }}}}</div><div class="lbl">تم ✅</div></div>
+      <div class="stat-tile"><div class="num">{{{{ sales.in_progress }}}}</div><div class="lbl">قيد الإنشاء 🔄</div></div>
+    </div>
+    <label>عدد الطلبات آخر 7 أيام</label>
+    <div class="chart">
+      {{% for bar in sales.bars %}}
+      <div class="bar-col">
+        <div class="bar-count">{{{{ bar.count }}}}</div>
+        <div class="bar" style="height: {{{{ bar.height }}}}%;"></div>
+        <div class="bar-label">{{{{ bar.label }}}}</div>
+      </div>
+      {{% endfor %}}
+    </div>
+  </div>
+
+  <h2>⚙️ الإعدادات الحالية</h2>
+  <div class="card">
     <div class="grid">
       <div><label>الحد اليومي للتذاكر</label><div class="badge">{{{{ cfg.get('max_tickets_per_day') }}}}</div></div>
       <div><label>تسجيل المحادثة</label><div class="badge">{{{{ 'مفعّل' if cfg.get('transcript_enabled') else 'معطّل' }}}}</div></div>
@@ -221,6 +307,7 @@ DASHBOARD_PAGE = f"""
         <div><label>EUR</label><input type="number" step="0.01" name="EUR" required></div>
         <div><label>EGP</label><input type="number" step="0.01" name="EGP" required></div>
         <div><label>JOD</label><input type="number" step="0.01" name="JOD" required></div>
+        <div><label>رابط الصورة (اختياري)</label><input type="text" name="image_url" placeholder="https://..."></div>
       </div>
       <button type="submit">💾 حفظ الغرض</button>
     </form>
@@ -230,9 +317,10 @@ DASHBOARD_PAGE = f"""
   <div class="card">
     <h3 style="margin-top:0; color:#e6c877;">{{{{ cat.name }}}} <span class="badge">{{{{ cat['items']|length }}}} غرض</span></h3>
     <table>
-      <tr><th>الاسم</th><th>SAR</th><th>USD</th><th>EUR</th><th>EGP</th><th>JOD</th><th></th></tr>
+      <tr><th></th><th>الاسم</th><th>SAR</th><th>USD</th><th>EUR</th><th>EGP</th><th>JOD</th><th></th></tr>
       {{% for item in cat['items'] %}}
       <tr>
+        <td>{{% if item.get('image_url') %}}<img class="thumb" src="{{{{ item.image_url }}}}">{{% else %}}—{{% endif %}}</td>
         <td>{{{{ item.name }}}}</td>
         <td>{{{{ item.prices.SAR }}}}</td>
         <td>{{{{ item.prices.USD }}}}</td>
@@ -293,7 +381,8 @@ def logout():
 def dashboard():
     cfg = load_config()
     products = load_products()
-    return render_template_string(DASHBOARD_PAGE, cfg=cfg, categories=products.get("categories", []))
+    sales = build_sales_chart_data()
+    return render_template_string(DASHBOARD_PAGE, cfg=cfg, categories=products.get("categories", []), sales=sales)
 
 
 @app.route("/dashboard/settings", methods=["POST"])
@@ -321,6 +410,7 @@ def update_settings():
 def add_item():
     category = request.form.get("category", "").strip()
     name = request.form.get("name", "").strip()
+    image_url = request.form.get("image_url", "").strip()
     try:
         prices = {
             "SAR": float(request.form.get("SAR", 0)),
@@ -341,8 +431,13 @@ def add_item():
     existing = next((i for i in cat["items"] if i["name"].lower() == name.lower()), None)
     if existing:
         existing["prices"] = prices
+        if image_url:
+            existing["image_url"] = image_url
     else:
-        cat["items"].append({"name": name, "prices": prices})
+        item = {"name": name, "prices": prices}
+        if image_url:
+            item["image_url"] = image_url
+        cat["items"].append(item)
     save_products(data)
     flash(f"✅ تم حفظ {name}")
     return redirect(url_for("dashboard"))
