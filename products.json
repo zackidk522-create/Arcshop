@@ -11,7 +11,8 @@
             "EUR": 4.4,
             "EGP": 269,
             "JOD": 3.65
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/7/78/Bobcat_IV.png"
         },
         {
           "name": "Burletta",
@@ -21,7 +22,8 @@
             "EUR": 1.76,
             "EGP": 108,
             "JOD": 1.46
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/8/8c/Burletta_IV.png"
         },
         {
           "name": "Venator",
@@ -31,7 +33,8 @@
             "EUR": 1.32,
             "EGP": 81,
             "JOD": 1.09
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/9/9f/Venator_IV.png"
         },
         {
           "name": "Bettina",
@@ -41,7 +44,8 @@
             "EUR": 0.7,
             "EGP": 43,
             "JOD": 0.58
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/3/32/Bettina_IV.png"
         },
         {
           "name": "Anvil IV",
@@ -51,7 +55,8 @@
             "EUR": 0.49,
             "EGP": 30,
             "JOD": 0.4
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/2/2d/Anvil_IV.png"
         },
         {
           "name": "Snap Hook",
@@ -61,7 +66,8 @@
             "EUR": 1.76,
             "EGP": 108,
             "JOD": 1.46
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/5/56/Snap_Hook.png"
         }
       ]
     },
@@ -76,7 +82,8 @@
             "EUR": 0.88,
             "EGP": 54,
             "JOD": 0.73
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/c/ce/Gas_Mine.png"
         },
         {
           "name": "Jolt Mine BP",
@@ -86,7 +93,8 @@
             "EUR": 0.88,
             "EGP": 54,
             "JOD": 0.73
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/5/5a/Jolt_Mine.png"
         },
         {
           "name": "Showstopper BP",
@@ -96,7 +104,8 @@
             "EUR": 0.14,
             "EGP": 9,
             "JOD": 0.12
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/1/18/Showstopper.png"
         },
         {
           "name": "Tactical Mk.3 (Healing)",
@@ -106,7 +115,8 @@
             "EUR": 0.13,
             "EGP": 8,
             "JOD": 0.11
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/1/12/Tactical_Mk._3_%28Healing%29.png"
         },
         {
           "name": "Combat Mk.3 (Aggressive)",
@@ -116,7 +126,8 @@
             "EUR": 5.5,
             "EGP": 336,
             "JOD": 4.57
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/a/a4/Combat_Mk._3_%28Aggressive%29.png"
         },
         {
           "name": "Looting Mk.3 (Survivor)",
@@ -126,7 +137,8 @@
             "EUR": 4.4,
             "EGP": 269,
             "JOD": 3.65
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/7/74/Looting_Mk._3_%28Survivor%29.png"
         },
         {
           "name": "Defibrillator BP",
@@ -136,7 +148,8 @@
             "EUR": 4.4,
             "EGP": 269,
             "JOD": 3.65
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/5/5f/Defibrillator.png"
         }
       ]
     },
@@ -151,7 +164,8 @@
             "EUR": 0.44,
             "EGP": 27,
             "JOD": 0.37
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/e/eb/Stable_Stock_III.png"
         },
         {
           "name": "Extended Shotgun Magazine III",
@@ -161,7 +175,8 @@
             "EUR": 0.11,
             "EGP": 6,
             "JOD": 0.09
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/7/77/Extended_Shotgun_Mag_III.png"
         },
         {
           "name": "Shotgun Choke III",
@@ -171,7 +186,8 @@
             "EUR": 0.49,
             "EGP": 30,
             "JOD": 0.4
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/3/36/Shotgun_Choke_III.png"
         },
         {
           "name": "Vertical Grip II",
@@ -181,7 +197,8 @@
             "EUR": 0.49,
             "EGP": 30,
             "JOD": 0.4
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/3/3c/Vertical_Grip_II.png"
         }
       ]
     },
@@ -196,7 +213,8 @@
             "EUR": 0.03,
             "EGP": 2,
             "JOD": 0.03
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/c/c5/Herbal_Bandage.png"
         },
         {
           "name": "Remote Raider Flare",
@@ -206,7 +224,8 @@
             "EUR": 0.03,
             "EGP": 2,
             "JOD": 0.03
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/f/ff/Remote_Raider_Flare.png"
         }
       ]
     },
@@ -221,7 +240,8 @@
             "EUR": 0.11,
             "EGP": 6,
             "JOD": 0.09
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/4/41/Medium_Shield.png"
         }
       ]
     },
@@ -236,7 +256,8 @@
             "EUR": 0.1,
             "EGP": 6,
             "JOD": 0.08
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/6/68/Raider_Hatch_Key.png"
         }
       ]
     },
@@ -251,7 +272,8 @@
             "EUR": 1.1,
             "EGP": 67,
             "JOD": 0.91
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/0/0f/Fireworks_Box.png"
         },
         {
           "name": "Seeker Grenade",
@@ -261,7 +283,8 @@
             "EUR": 0.49,
             "EGP": 30,
             "JOD": 0.4
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/3/35/Seeker_Grenade.png"
         }
       ]
     },
@@ -276,7 +299,8 @@
             "EUR": 2.2,
             "EGP": 135,
             "JOD": 1.83
-          }
+          },
+          "image_url": "https://arcraiders.wiki/w/images/6/6d/Battery.png"
         }
       ]
     }
