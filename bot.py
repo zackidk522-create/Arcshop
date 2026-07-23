@@ -17,6 +17,7 @@ DEFAULT_TICKET_CATEGORY_ID = 1503402971516506163
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 DAILY_PATH = os.path.join(os.path.dirname(__file__), "daily_tickets.json")
 PRODUCTS_PATH = os.path.join(os.path.dirname(__file__), "products.json")
+ORDERS_LOG_PATH = os.path.join(os.path.dirname(__file__), "orders_log.json")
 TRANSCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "transcripts")
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
@@ -32,7 +33,7 @@ DEFAULT_CONFIG = {
     "welcome_channel_name": "welcome",
     "stock_channel_id": None,
     "stock_channel_name": "stock",
-    "stock_message_id": None,
+    "stock_message_ids": [],
     "category_id": DEFAULT_TICKET_CATEGORY_ID,
     "max_tickets_per_day": 5,
     "transcript_enabled": True,
@@ -104,6 +105,40 @@ def save_products(data):
     with open(PRODUCTS_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def load_orders_log():
+    if not os.path.exists(ORDERS_LOG_PATH):
+        return []
+    with open(ORDERS_LOG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_orders_log(data):
+    with open(ORDERS_LOG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def record_new_order(message_id: int, user_id: int, product_name: str, price: str, payment_method: str):
+    log = load_orders_log()
+    now = datetime.datetime.now().isoformat()
+    log.append({
+        "message_id": message_id,
+        "user_id": user_id,
+        "product_name": product_name,
+        "price": price,
+        "payment_method": payment_method,
+        "status": "قيد الإنشاء",
+        "created_at": now,
+        "updated_at": now
+    })
+    save_orders_log(log)
+
+def update_order_status(message_id: int, new_status: str):
+    log = load_orders_log()
+    for entry in log:
+        if entry.get("message_id") == message_id:
+            entry["status"] = new_status
+            entry["updated_at"] = datetime.datetime.now().isoformat()
+            save_orders_log(log)
+            return
+
 def format_price_line(prices: dict) -> str:
     flags = {"SAR": "🇸🇦", "USD": "🇺🇸", "EUR": "🇪🇺", "EGP": "🇪🇬", "JOD": "🇯🇴"}
     parts = []
@@ -113,28 +148,62 @@ def format_price_line(prices: dict) -> str:
         parts.append(f"{flag} {v} {code}")
     return "\n".join(parts)
 
-def build_stock_embeds():
+async def post_stock_catalog(channel: discord.TextChannel):
+    """يمسح رسائل الكتالوج القديمة (لو موجودة) وينشر كتالوج جديد، ويحفظ الـ IDs الجديدة."""
+    cfg = load_config()
+    for old_id in cfg.get("stock_message_ids", []):
+        try:
+            old_msg = await channel.fetch_message(old_id)
+            await old_msg.delete()
+        except Exception:
+            pass
+
+    new_ids = []
+    for embeds in build_stock_messages():
+        msg = await channel.send(embeds=embeds)
+        new_ids.append(msg.id)
+
+    cfg["stock_message_ids"] = new_ids
+    save_config(cfg)
+
+
+def build_stock_messages():
+    """
+    يبني قائمة رسائل (كل عنصر = قائمة embeds لرسالة واحدة).
+    رسالة هيدر، ثم رسالة منفصلة لكل كاتيجوري (embed رأسي + embed لكل غرض بصورته لو موجودة)، ثم رسالة فوتر.
+    """
     data = load_products()
-    embeds = []
+    messages = []
+
     header = discord.Embed(
         title="🛒 WRC STORE",
         description="⚔️ **ARC RAIDERS MARKET**\n> 💎 Premium Items • Fast Delivery • Trusted Service",
         color=0xFFD700
     )
-    embeds.append(header)
+    messages.append([header])
+
     for cat in data.get("categories", []):
-        embed = discord.Embed(title=cat["name"], color=0x5865F2)
-        for item in cat.get("items", []):
-            embed.add_field(name=item["name"], value=format_price_line(item["prices"]), inline=True)
-        if not cat.get("items"):
-            embed.description = "لا يوجد أغراض حالياً"
-        embeds.append(embed)
+        cat_embeds = [discord.Embed(title=cat["name"], color=0xFFD700)]
+        items = cat.get("items", [])
+        if not items:
+            cat_embeds[0].description = "لا يوجد أغراض حالياً"
+        for item in items[:9]:  # حد أقصى 10 embeds/رسالة (1 هيدر + 9 أغراض)
+            item_embed = discord.Embed(
+                title=f"🖼️ {item['name']}",
+                description=format_price_line(item["prices"]),
+                color=0x5865F2
+            )
+            if item.get("image_url"):
+                item_embed.set_thumbnail(url=item["image_url"])
+            cat_embeds.append(item_embed)
+        messages.append(cat_embeds)
+
     footer = discord.Embed(
         description="✅ Trusted Seller  •  ⚡ Instant Delivery  •  💎 Best Prices\n🎮 WRC STORE • Made by Ramos",
         color=0x2ecc71
     )
-    embeds.append(footer)
-    return embeds
+    messages.append([footer])
+    return messages
 
 config = load_config()
 
@@ -407,7 +476,8 @@ async def finalize_product_order(interaction: discord.Interaction, product_name:
             order_embed.add_field(name="📝 ملاحظات", value=notes, inline=False)
         order_embed.add_field(name="🎫 التذكرة", value=interaction.channel.mention, inline=False)
         order_embed.set_footer(text=f"ID: {interaction.user.id}")
-        await orders_channel.send(embed=order_embed, view=OrderStatusView())
+        order_msg = await orders_channel.send(embed=order_embed, view=OrderStatusView())
+        record_new_order(order_msg.id, interaction.user.id, product_name, price, payment_label)
 
 
 # ─────────────────────────────────────────
@@ -606,6 +676,7 @@ class OrderStatusView(View):
         old_embed = interaction.message.embeds[0]
         new_embed = discord.Embed.from_dict(old_embed.to_dict())
 
+        new_status = None
         for i, field in enumerate(new_embed.fields):
             if field.name == "📊 الحالة":
                 if "قيد الإنشاء" in field.value:
@@ -613,12 +684,17 @@ class OrderStatusView(View):
                     new_embed.color = 0x2ecc71
                     button.label = "🔄 إرجاع لـ: قيد الإنشاء"
                     button.style = discord.ButtonStyle.secondary
+                    new_status = "تم"
                 else:
                     new_embed.set_field_at(i, name="📊 الحالة", value="🔄 قيد الإنشاء", inline=field.inline)
                     new_embed.color = 0xFFD700
                     button.label = "✅ تحديد كـ: تم"
                     button.style = discord.ButtonStyle.success
+                    new_status = "قيد الإنشاء"
                 break
+
+        if new_status:
+            update_order_status(interaction.message.id, new_status)
 
         await interaction.response.edit_message(embed=new_embed, view=self)
 
@@ -902,18 +978,9 @@ class MoreSetupView(View):
             await interaction.response.send_message("❌ لازم تحدد قناة المخزون الأول", ephemeral=True)
             return
         channel = interaction.guild.get_channel(cfg["stock_channel_id"])
-        embeds = build_stock_embeds()
-        # امسح آخر رسالة كتالوج قديمة لو موجودة
-        if cfg.get("stock_message_id"):
-            try:
-                old_msg = await channel.fetch_message(cfg["stock_message_id"])
-                await old_msg.delete()
-            except Exception:
-                pass
-        msg = await channel.send(embeds=embeds)
-        cfg["stock_message_id"] = msg.id
-        save_config(cfg)
-        await interaction.response.send_message("✅ تم نشر/تحديث كتالوج المخزون بنجاح!", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        await post_stock_catalog(channel)
+        await interaction.followup.send("✅ تم نشر/تحديث كتالوج المخزون بنجاح!", ephemeral=True)
 
 
 class SetupView(View):
@@ -1076,16 +1143,7 @@ async def refresh_stock(ctx):
         await ctx.send("❌ لازم تحدد قناة المخزون الأول من `!setup` > إعدادات إضافية")
         return
     channel = ctx.guild.get_channel(cfg["stock_channel_id"])
-    embeds = build_stock_embeds()
-    if cfg.get("stock_message_id"):
-        try:
-            old_msg = await channel.fetch_message(cfg["stock_message_id"])
-            await old_msg.delete()
-        except Exception:
-            pass
-    msg = await channel.send(embeds=embeds)
-    cfg["stock_message_id"] = msg.id
-    save_config(cfg)
+    await post_stock_catalog(channel)
     await ctx.send(f"✅ تم نشر/تحديث كتالوج المخزون في {channel.mention}")
     await ctx.message.delete()
 
@@ -1094,15 +1152,16 @@ async def refresh_stock(ctx):
 @commands.has_permissions(administrator=True)
 async def add_item(ctx, *, args: str):
     """
-    إضافة غرض جديد للمخزون
-    الاستخدام: !additem الكاتيجوري | اسم الغرض | SAR | USD | EUR | EGP | JOD
-    مثال: !additem 🔫 Weapons | BobCat IV | 19.31 | 5.15 | 4.40 | 269 | 3.65
+    إضافة غرض جديد للمخزون (رابط الصورة اختياري)
+    الاستخدام: !additem الكاتيجوري | اسم الغرض | SAR | USD | EUR | EGP | JOD | رابط الصورة(اختياري)
+    مثال: !additem 🔫 Weapons | BobCat IV | 19.31 | 5.15 | 4.40 | 269 | 3.65 | https://example.com/img.png
     """
     parts = [p.strip() for p in args.split("|")]
-    if len(parts) != 7:
-        await ctx.send("❌ الصيغة غلط. استخدم:\n`!additem الكاتيجوري | اسم الغرض | SAR | USD | EUR | EGP | JOD`")
+    if len(parts) not in (7, 8):
+        await ctx.send("❌ الصيغة غلط. استخدم:\n`!additem الكاتيجوري | اسم الغرض | SAR | USD | EUR | EGP | JOD | رابط الصورة(اختياري)`")
         return
-    cat_name, item_name, sar, usd, eur, egp, jod = parts
+    cat_name, item_name, sar, usd, eur, egp, jod = parts[:7]
+    image_url = parts[7] if len(parts) == 8 else ""
     try:
         prices = {
             "SAR": float(sar), "USD": float(usd), "EUR": float(eur),
@@ -1121,9 +1180,14 @@ async def add_item(ctx, *, args: str):
     existing = next((i for i in category["items"] if i["name"].lower() == item_name.lower()), None)
     if existing:
         existing["prices"] = prices
+        if image_url:
+            existing["image_url"] = image_url
         action = "تم تحديث"
     else:
-        category["items"].append({"name": item_name, "prices": prices})
+        item = {"name": item_name, "prices": prices}
+        if image_url:
+            item["image_url"] = image_url
+        category["items"].append(item)
         action = "تم إضافة"
 
     save_products(data)
