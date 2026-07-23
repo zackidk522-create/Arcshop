@@ -1,0 +1,13 @@
+{
+  "log_channel_id": null,
+  "log_channel_name": "arc-orders",
+  "category_id": 1503402971516506163,
+  "max_tickets_per_day": 5,
+  "transcript_enabled": true,
+  "stock_channel_id": null,
+  "stock_channel_name": null,
+  "orders_channel_id": null,
+  "orders_channel_name": null,
+  "welcome_channel_id": null,
+  "welcome_channel_name": null
+}
