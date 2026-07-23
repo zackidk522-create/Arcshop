@@ -1173,5 +1173,5 @@ async def list_stock(ctx):
     embed = discord.Embed(title="📦 قائمة المخزون الحالية", description=text[:4000], color=0x5865F2)
     await ctx.send(embed=embed)
 
-keep_alive()
+keep_alive(bot)
 bot.run(TOKEN)
