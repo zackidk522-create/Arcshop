@@ -16,6 +16,7 @@ DEFAULT_TICKET_CATEGORY_ID = 1503402971516506163
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 DAILY_PATH = os.path.join(os.path.dirname(__file__), "daily_tickets.json")
+PRODUCTS_PATH = os.path.join(os.path.dirname(__file__), "products.json")
 TRANSCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "transcripts")
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
@@ -29,6 +30,9 @@ DEFAULT_CONFIG = {
     "orders_channel_name": "arc-requests",
     "welcome_channel_id": None,
     "welcome_channel_name": "welcome",
+    "stock_channel_id": None,
+    "stock_channel_name": "stock",
+    "stock_message_id": None,
     "category_id": DEFAULT_TICKET_CATEGORY_ID,
     "max_tickets_per_day": 5,
     "transcript_enabled": True,
@@ -81,6 +85,56 @@ def get_welcome_channel(guild):
         if ch:
             return ch
     return discord.utils.get(guild.text_channels, name=cfg["welcome_channel_name"])
+
+def get_stock_channel(guild):
+    cfg = load_config()
+    if cfg.get("stock_channel_id"):
+        ch = guild.get_channel(cfg["stock_channel_id"])
+        if ch:
+            return ch
+    return discord.utils.get(guild.text_channels, name=cfg["stock_channel_name"])
+
+def load_products():
+    if not os.path.exists(PRODUCTS_PATH):
+        return {"categories": []}
+    with open(PRODUCTS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_products(data):
+    with open(PRODUCTS_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def format_price_line(prices: dict) -> str:
+    flags = {"SAR": "🇸🇦", "USD": "🇺🇸", "EUR": "🇪🇺", "EGP": "🇪🇬", "JOD": "🇯🇴"}
+    parts = []
+    for code, val in prices.items():
+        flag = flags.get(code, "")
+        v = int(val) if float(val).is_integer() else val
+        parts.append(f"{flag} {v} {code}")
+    return "\n".join(parts)
+
+def build_stock_embeds():
+    data = load_products()
+    embeds = []
+    header = discord.Embed(
+        title="🛒 WRC STORE",
+        description="⚔️ **ARC RAIDERS MARKET**\n> 💎 Premium Items • Fast Delivery • Trusted Service",
+        color=0xFFD700
+    )
+    embeds.append(header)
+    for cat in data.get("categories", []):
+        embed = discord.Embed(title=cat["name"], color=0x5865F2)
+        for item in cat.get("items", []):
+            embed.add_field(name=item["name"], value=format_price_line(item["prices"]), inline=True)
+        if not cat.get("items"):
+            embed.description = "لا يوجد أغراض حالياً"
+        embeds.append(embed)
+    footer = discord.Embed(
+        description="✅ Trusted Seller  •  ⚡ Instant Delivery  •  💎 Best Prices\n🎮 WRC STORE • Made by Ramos",
+        color=0x2ecc71
+    )
+    embeds.append(footer)
+    return embeds
 
 config = load_config()
 
@@ -802,6 +856,66 @@ class WelcomeChannelSelect(discord.ui.ChannelSelect):
         await self.setup_view.refresh(interaction)
 
 
+class StockChannelSelect(discord.ui.ChannelSelect):
+    def __init__(self, more_view):
+        super().__init__(
+            placeholder="📦 اختر قناة عرض المخزون (Stock)...",
+            channel_types=[discord.ChannelType.text],
+            custom_id="stock_channel_select",
+            row=0
+        )
+        self.more_view = more_view
+
+    async def callback(self, interaction: discord.Interaction):
+        cfg = load_config()
+        ch = self.values[0]
+        cfg["stock_channel_id"] = ch.id
+        cfg["stock_channel_name"] = ch.name
+        save_config(cfg)
+        await self.more_view.refresh(interaction)
+
+
+class MoreSetupView(View):
+    def __init__(self):
+        super().__init__(timeout=600)
+        self.add_item(StockChannelSelect(self))
+
+    def build_embed(self, guild: discord.Guild):
+        cfg = load_config()
+        stock_channel = get_stock_channel(guild)
+        embed = discord.Embed(title="⚙️ إعدادات إضافية", color=0x5865F2)
+        embed.add_field(name="📦 قناة المخزون (Stock)", value=stock_channel.mention if stock_channel else "❌ غير محدد", inline=True)
+        embed.set_footer(text="بعد تحديد قناة المخزون استخدم أمر !refreshstock لنشر الكتالوج\n🛠️ Made by Ramos")
+        return embed
+
+    async def refresh(self, interaction: discord.Interaction):
+        embed = self.build_embed(interaction.guild)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="📢 نشر/تحديث كتالوج المخزون هنا", style=discord.ButtonStyle.success, row=1)
+    async def publish_stock(self, interaction: discord.Interaction, button: Button):
+        cfg = load_config()
+        if not cfg.get("stock_channel_id"):
+            await interaction.response.send_message("❌ لازم تحدد قناة المخزون الأول", ephemeral=True)
+            return
+        channel = interaction.guild.get_channel(cfg["stock_channel_id"])
+        embeds = build_stock_embeds()
+        # امسح آخر رسالة كتالوج قديمة لو موجودة
+        if cfg.get("stock_message_id"):
+            try:
+                old_msg = await channel.fetch_message(cfg["stock_message_id"])
+                await old_msg.delete()
+            except Exception:
+                pass
+        msg = await channel.send(embeds=embeds)
+        cfg["stock_message_id"] = msg.id
+        save_config(cfg)
+        await interaction.response.send_message("✅ تم نشر/تحديث كتالوج المخزون بنجاح!", ephemeral=True)
+
+
 class SetupView(View):
     def __init__(self):
         super().__init__(timeout=600)
@@ -861,6 +975,12 @@ class SetupView(View):
     @discord.ui.button(label="🔢 الحد اليومي", style=discord.ButtonStyle.secondary, row=4)
     async def set_limit(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(DailyLimitModal(self))
+
+    @discord.ui.button(label="⚙️ إعدادات إضافية (المخزون)", style=discord.ButtonStyle.secondary, row=4)
+    async def more_settings(self, interaction: discord.Interaction, button: Button):
+        view = MoreSetupView()
+        embed = view.build_embed(interaction.guild)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="🚀 نشر رسالة فتح التذاكر هنا", style=discord.ButtonStyle.success, row=4)
     async def publish(self, interaction: discord.Interaction, button: Button):
@@ -945,6 +1065,113 @@ async def setup_tickets(ctx):
     embed = await view.build_embed(ctx.guild)
     await ctx.send(embed=embed, view=view)
     await ctx.message.delete()
+
+
+@bot.command(name="refreshstock")
+@commands.has_permissions(administrator=True)
+async def refresh_stock(ctx):
+    """ينشر/يحدّث كتالوج المخزون في قناة الستوك المحددة"""
+    cfg = load_config()
+    if not cfg.get("stock_channel_id"):
+        await ctx.send("❌ لازم تحدد قناة المخزون الأول من `!setup` > إعدادات إضافية")
+        return
+    channel = ctx.guild.get_channel(cfg["stock_channel_id"])
+    embeds = build_stock_embeds()
+    if cfg.get("stock_message_id"):
+        try:
+            old_msg = await channel.fetch_message(cfg["stock_message_id"])
+            await old_msg.delete()
+        except Exception:
+            pass
+    msg = await channel.send(embeds=embeds)
+    cfg["stock_message_id"] = msg.id
+    save_config(cfg)
+    await ctx.send(f"✅ تم نشر/تحديث كتالوج المخزون في {channel.mention}")
+    await ctx.message.delete()
+
+
+@bot.command(name="additem")
+@commands.has_permissions(administrator=True)
+async def add_item(ctx, *, args: str):
+    """
+    إضافة غرض جديد للمخزون
+    الاستخدام: !additem الكاتيجوري | اسم الغرض | SAR | USD | EUR | EGP | JOD
+    مثال: !additem 🔫 Weapons | BobCat IV | 19.31 | 5.15 | 4.40 | 269 | 3.65
+    """
+    parts = [p.strip() for p in args.split("|")]
+    if len(parts) != 7:
+        await ctx.send("❌ الصيغة غلط. استخدم:\n`!additem الكاتيجوري | اسم الغرض | SAR | USD | EUR | EGP | JOD`")
+        return
+    cat_name, item_name, sar, usd, eur, egp, jod = parts
+    try:
+        prices = {
+            "SAR": float(sar), "USD": float(usd), "EUR": float(eur),
+            "EGP": float(egp), "JOD": float(jod)
+        }
+    except ValueError:
+        await ctx.send("❌ الأسعار لازم تكون أرقام")
+        return
+
+    data = load_products()
+    category = next((c for c in data["categories"] if c["name"].lower() == cat_name.lower()), None)
+    if not category:
+        category = {"name": cat_name, "items": []}
+        data["categories"].append(category)
+
+    existing = next((i for i in category["items"] if i["name"].lower() == item_name.lower()), None)
+    if existing:
+        existing["prices"] = prices
+        action = "تم تحديث"
+    else:
+        category["items"].append({"name": item_name, "prices": prices})
+        action = "تم إضافة"
+
+    save_products(data)
+    await ctx.send(f"✅ {action} **{item_name}** في **{cat_name}**\nاستخدم `!refreshstock` عشان تحدّث القناة")
+
+
+@bot.command(name="removeitem")
+@commands.has_permissions(administrator=True)
+async def remove_item(ctx, *, args: str):
+    """
+    حذف غرض من المخزون
+    الاستخدام: !removeitem الكاتيجوري | اسم الغرض
+    """
+    parts = [p.strip() for p in args.split("|")]
+    if len(parts) != 2:
+        await ctx.send("❌ الصيغة غلط. استخدم:\n`!removeitem الكاتيجوري | اسم الغرض`")
+        return
+    cat_name, item_name = parts
+
+    data = load_products()
+    category = next((c for c in data["categories"] if c["name"].lower() == cat_name.lower()), None)
+    if not category:
+        await ctx.send(f"❌ الكاتيجوري **{cat_name}** مش موجود")
+        return
+
+    before = len(category["items"])
+    category["items"] = [i for i in category["items"] if i["name"].lower() != item_name.lower()]
+    if len(category["items"]) == before:
+        await ctx.send(f"❌ الغرض **{item_name}** مش موجود في **{cat_name}**")
+        return
+
+    save_products(data)
+    await ctx.send(f"✅ تم حذف **{item_name}** من **{cat_name}**\nاستخدم `!refreshstock` عشان تحدّث القناة")
+
+
+@bot.command(name="liststock")
+@commands.has_permissions(administrator=True)
+async def list_stock(ctx):
+    """يعرض كل الكاتيجوريز والأغراض الحالية في المخزون"""
+    data = load_products()
+    lines = []
+    for cat in data.get("categories", []):
+        lines.append(f"**{cat['name']}** ({len(cat['items'])} غرض)")
+        for item in cat["items"]:
+            lines.append(f"  • {item['name']}")
+    text = "\n".join(lines) if lines else "لا يوجد أغراض بعد"
+    embed = discord.Embed(title="📦 قائمة المخزون الحالية", description=text[:4000], color=0x5865F2)
+    await ctx.send(embed=embed)
 
 keep_alive()
 bot.run(TOKEN)
