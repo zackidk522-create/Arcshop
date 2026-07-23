@@ -157,6 +157,24 @@ def get_guild_text_channels():
         return []
 
 
+async def _get_categories_async():
+    if not _bot.guilds:
+        return []
+    guild = _bot.guilds[0]
+    return [(cat.id, cat.name) for cat in guild.categories]
+
+
+def get_guild_categories():
+    """يرجع قائمة (id, name) لكل الكاتيجوريز (تصنيفات القنوات) في السيرفر."""
+    if _bot is None or _bot.loop is None:
+        return []
+    future = asyncio.run_coroutine_threadsafe(_get_categories_async(), _bot.loop)
+    try:
+        return future.result(timeout=10)
+    except Exception:
+        return []
+
+
 def build_sales_chart_data(days=7):
     """يرجع إحصائيات آخر N يوم من orders_log.json: عدد الطلبات لكل يوم + إجمالي/مكتمل/قيد الإنشاء."""
     log = load_orders_log()
@@ -302,31 +320,65 @@ DASHBOARD_PAGE = f"""
     </div>
   </div>
 
-  <h2>⚙️ الإعدادات الحالية</h2>
+  <h2>⚙️ إعدادات البوت (كل شيء قابل للتعديل من هنا)</h2>
   <div class="card">
-    <div class="grid">
-      <div><label>الحد اليومي للتذاكر</label><div class="badge">{{{{ cfg.get('max_tickets_per_day') }}}}</div></div>
-      <div><label>تسجيل المحادثة</label><div class="badge">{{{{ 'مفعّل' if cfg.get('transcript_enabled') else 'معطّل' }}}}</div></div>
-      <div><label>قناة الطلبات (ID)</label><div>{{{{ cfg.get('orders_channel_id') or '❌' }}}}</div></div>
-      <div><label>قناة اللوق (ID)</label><div>{{{{ cfg.get('log_channel_id') or '❌' }}}}</div></div>
-      <div><label>قناة الترحيب (ID)</label><div>{{{{ cfg.get('welcome_channel_id') or '❌' }}}}</div></div>
-      <div><label>قناة المخزون (ID)</label><div>{{{{ cfg.get('stock_channel_id') or '❌' }}}}</div></div>
-    </div>
-    <form method="POST" action="{{{{ url_for('update_settings') }}}}" style="margin-top:15px;">
-      <label>الحد اليومي للتذاكر</label>
-      <input type="number" name="max_tickets_per_day" value="{{{{ cfg.get('max_tickets_per_day', 5) }}}}">
-      <label style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+    <form method="POST" action="{{{{ url_for('update_settings') }}}}">
+      <div class="grid">
+        <div>
+          <label>📦 كاتيجوري التذاكر</label>
+          <select name="category_id">
+            <option value="">-- بدون --</option>
+            {{% for catid, catname in categories_list %}}
+            <option value="{{{{ catid }}}}" {{{{ 'selected' if cfg.get('category_id') == catid else '' }}}}>{{{{ catname }}}}</option>
+            {{% endfor %}}
+          </select>
+        </div>
+        <div>
+          <label>📝 قناة سجل التذاكر (Log)</label>
+          <select name="log_channel_id">
+            <option value="">-- بدون --</option>
+            {{% for cid, cname in channels %}}
+            <option value="{{{{ cid }}}}" {{{{ 'selected' if cfg.get('log_channel_id') == cid else '' }}}}>#{{{{ cname }}}}</option>
+            {{% endfor %}}
+          </select>
+        </div>
+        <div>
+          <label>🧾 قناة الطلبات (Orders)</label>
+          <select name="orders_channel_id">
+            <option value="">-- بدون --</option>
+            {{% for cid, cname in channels %}}
+            <option value="{{{{ cid }}}}" {{{{ 'selected' if cfg.get('orders_channel_id') == cid else '' }}}}>#{{{{ cname }}}}</option>
+            {{% endfor %}}
+          </select>
+        </div>
+        <div>
+          <label>👋 قناة الترحيب</label>
+          <select name="welcome_channel_id">
+            <option value="">-- بدون --</option>
+            {{% for cid, cname in channels %}}
+            <option value="{{{{ cid }}}}" {{{{ 'selected' if cfg.get('welcome_channel_id') == cid else '' }}}}>#{{{{ cname }}}}</option>
+            {{% endfor %}}
+          </select>
+        </div>
+        <div>
+          <label>🛒 قناة المخزون (Stock)</label>
+          <select name="stock_channel_id">
+            <option value="">-- بدون --</option>
+            {{% for cid, cname in channels %}}
+            <option value="{{{{ cid }}}}" {{{{ 'selected' if cfg.get('stock_channel_id') == cid else '' }}}}>#{{{{ cname }}}}</option>
+            {{% endfor %}}
+          </select>
+        </div>
+        <div>
+          <label>🔢 الحد اليومي للتذاكر</label>
+          <input type="number" name="max_tickets_per_day" value="{{{{ cfg.get('max_tickets_per_day', 5) }}}}">
+        </div>
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
         <input type="checkbox" name="transcript_enabled" style="width:auto;" {{{{ 'checked' if cfg.get('transcript_enabled') else '' }}}}>
-        تفعيل تسجيل المحادثة
+        تفعيل تسجيل المحادثة (Transcript)
       </label>
-      <label style="margin-top:10px;">قناة المخزون</label>
-      <select name="stock_channel_id">
-        <option value="">-- اختر القناة --</option>
-        {{% for cid, cname in channels %}}
-        <option value="{{{{ cid }}}}" {{{{ 'selected' if cfg.get('stock_channel_id') == cid else '' }}}}>#{{{{ cname }}}}</option>
-        {{% endfor %}}
-      </select>
-      <button type="submit">💾 حفظ الإعدادات</button>
+      <button type="submit">💾 حفظ كل الإعدادات</button>
     </form>
     <form method="POST" action="{{{{ url_for('refresh_stock_route') }}}}" style="margin-top:10px;">
       <button type="submit">📢 نشر/تحديث كتالوج المخزون في ديسكورد الآن</button>
@@ -345,21 +397,37 @@ DASHBOARD_PAGE = f"""
         <div><label>EUR</label><input type="number" step="0.01" name="EUR" required></div>
         <div><label>EGP</label><input type="number" step="0.01" name="EGP" required></div>
         <div><label>JOD</label><input type="number" step="0.01" name="JOD" required></div>
+        <div><label>الكمية المتوفرة</label><input type="number" name="quantity" placeholder="اتركه فاضي = غير محدود"></div>
         <div><label>رابط الصورة (اختياري)</label><input type="text" name="image_url" placeholder="https://..."></div>
       </div>
       <button type="submit">💾 حفظ الغرض</button>
     </form>
   </div>
 
+  <div class="card">
+    <h3 style="margin-top:0; color:#e6c877;">📁 إضافة كاتيجوري جديد</h3>
+    <form method="POST" action="{{{{ url_for('add_category') }}}}" style="display:flex; gap:10px;">
+      <input type="text" name="category_name" placeholder="اسم الكاتيجوري الجديد (مثال: 🎒 Backpacks)" required>
+      <button type="submit" style="white-space:nowrap;">➕ إنشاء</button>
+    </form>
+  </div>
+
   {{% for cat in categories %}}
   <div class="card">
-    <h3 style="margin-top:0; color:#e6c877;">{{{{ cat.name }}}} <span class="badge">{{{{ cat['items']|length }}}} غرض</span></h3>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin-top:0; color:#e6c877;">{{{{ cat.name }}}} <span class="badge">{{{{ cat['items']|length }}}} غرض</span></h3>
+      <form method="POST" action="{{{{ url_for('delete_category') }}}}" style="margin:0;">
+        <input type="hidden" name="category" value="{{{{ cat.name }}}}">
+        <button type="submit" class="danger" style="padding:5px 10px; font-size:12px;" onclick="return confirm('حذف الكاتيجوري وكل أغراضه؟')">🗑️ حذف الكاتيجوري</button>
+      </form>
+    </div>
     <div class="table-scroll"><table>
-      <tr><th></th><th>الاسم</th><th>SAR</th><th>USD</th><th>EUR</th><th>EGP</th><th>JOD</th><th></th></tr>
+      <tr><th></th><th>الاسم</th><th>الكمية</th><th>SAR</th><th>USD</th><th>EUR</th><th>EGP</th><th>JOD</th><th></th></tr>
       {{% for item in cat['items'] %}}
       <tr>
         <td>{{% if item.get('image_url') %}}<img class="thumb" src="{{{{ item.image_url }}}}">{{% else %}}—{{% endif %}}</td>
         <td>{{{{ item.name }}}}</td>
+        <td>{{% if item.get('quantity') is not none %}}{{{{ item.quantity }}}}{{% else %}}∞{{% endif %}}</td>
         <td>{{{{ item.prices.SAR }}}}</td>
         <td>{{{{ item.prices.USD }}}}</td>
         <td>{{{{ item.prices.EUR }}}}</td>
@@ -421,7 +489,15 @@ def dashboard():
     products = load_products()
     sales = build_sales_chart_data()
     channels = get_guild_text_channels()
-    return render_template_string(DASHBOARD_PAGE, cfg=cfg, categories=products.get("categories", []), sales=sales, channels=channels)
+    categories_list = get_guild_categories()
+    return render_template_string(DASHBOARD_PAGE, cfg=cfg, categories=products.get("categories", []), sales=sales, channels=channels, categories_list=categories_list)
+
+
+def _name_lookup(pairs, target_id):
+    for pid, pname in pairs:
+        if pid == target_id:
+            return pname
+    return None
 
 
 @app.route("/dashboard/settings", methods=["POST"])
@@ -433,14 +509,33 @@ def update_settings():
     except ValueError:
         pass
     cfg["transcript_enabled"] = bool(request.form.get("transcript_enabled"))
-    stock_id = request.form.get("stock_channel_id", "").strip()
-    if stock_id:
+
+    channels = get_guild_text_channels()
+    categories_list = get_guild_categories()
+
+    for field, name_field, source in [
+        ("stock_channel_id", "stock_channel_name", channels),
+        ("log_channel_id", "log_channel_name", channels),
+        ("orders_channel_id", "orders_channel_name", channels),
+        ("welcome_channel_id", "welcome_channel_name", channels),
+        ("category_id", None, categories_list),
+    ]:
+        raw = request.form.get(field, "").strip()
+        if raw == "":
+            cfg[field] = None
+            if name_field:
+                cfg[name_field] = None
+            continue
         try:
-            cfg["stock_channel_id"] = int(stock_id)
+            val = int(raw)
+            cfg[field] = val
+            if name_field:
+                cfg[name_field] = _name_lookup(source, val)
         except ValueError:
-            flash("⚠️ الـ ID اللي كتبته مش رقم صحيح", "error")
+            flash(f"⚠️ قيمة غير صحيحة في {field}", "error")
+
     save_config(cfg)
-    flash("✅ تم حفظ الإعدادات")
+    flash("✅ تم حفظ كل الإعدادات بنجاح")
     return redirect(url_for("dashboard"))
 
 
@@ -450,6 +545,7 @@ def add_item():
     category = request.form.get("category", "").strip()
     name = request.form.get("name", "").strip()
     image_url = request.form.get("image_url", "").strip()
+    qty_raw = request.form.get("quantity", "").strip()
     try:
         prices = {
             "SAR": float(request.form.get("SAR", 0)),
@@ -462,6 +558,14 @@ def add_item():
         flash("❌ الأسعار لازم تكون أرقام", "error")
         return redirect(url_for("dashboard"))
 
+    quantity = None
+    if qty_raw != "":
+        try:
+            quantity = int(qty_raw)
+        except ValueError:
+            flash("❌ الكمية لازم تكون رقم صحيح", "error")
+            return redirect(url_for("dashboard"))
+
     data = load_products()
     cat = next((c for c in data["categories"] if c["name"].lower() == category.lower()), None)
     if not cat:
@@ -472,8 +576,9 @@ def add_item():
         existing["prices"] = prices
         if image_url:
             existing["image_url"] = image_url
+        existing["quantity"] = quantity
     else:
-        item = {"name": name, "prices": prices}
+        item = {"name": name, "prices": prices, "quantity": quantity}
         if image_url:
             item["image_url"] = image_url
         cat["items"].append(item)
@@ -493,6 +598,34 @@ def delete_item():
         cat["items"] = [i for i in cat["items"] if i["name"] != name]
         save_products(data)
         flash(f"🗑️ تم حذف {name}")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/dashboard/categories/add", methods=["POST"])
+@login_required
+def add_category():
+    name = request.form.get("category_name", "").strip()
+    if not name:
+        flash("❌ اسم الكاتيجوري مطلوب", "error")
+        return redirect(url_for("dashboard"))
+    data = load_products()
+    if any(c["name"].lower() == name.lower() for c in data["categories"]):
+        flash("⚠️ الكاتيجوري ده موجود بالفعل", "error")
+        return redirect(url_for("dashboard"))
+    data["categories"].append({"name": name, "items": []})
+    save_products(data)
+    flash(f"✅ تم إنشاء كاتيجوري {name}")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/dashboard/categories/delete", methods=["POST"])
+@login_required
+def delete_category():
+    name = request.form.get("category", "")
+    data = load_products()
+    data["categories"] = [c for c in data["categories"] if c["name"] != name]
+    save_products(data)
+    flash(f"🗑️ تم حذف كاتيجوري {name}")
     return redirect(url_for("dashboard"))
 
 
