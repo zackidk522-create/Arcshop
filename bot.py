@@ -188,10 +188,14 @@ def build_stock_messages():
         if not items:
             cat_embeds[0].description = "لا يوجد أغراض حالياً"
         for item in items[:9]:  # حد أقصى 10 embeds/رسالة (1 هيدر + 9 أغراض)
+            desc = format_price_line(item["prices"])
+            qty = item.get("quantity")
+            if qty is not None:
+                desc += f"\n📦 المتوفر: {qty}" if qty > 0 else "\n🚫 غير متوفر حالياً"
             item_embed = discord.Embed(
                 title=f"🖼️ {item['name']}",
-                description=format_price_line(item["prices"]),
-                color=0x5865F2
+                description=desc,
+                color=0x5865F2 if (qty is None or qty > 0) else 0x555555
             )
             if item.get("image_url"):
                 item_embed.set_thumbnail(url=item["image_url"])
