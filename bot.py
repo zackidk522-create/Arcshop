@@ -33,6 +33,8 @@ DEFAULT_CONFIG = {
     "welcome_channel_name": "welcome",
     "stock_channel_id": None,
     "stock_channel_name": "stock",
+    "media_channel_id": None,
+    "media_channel_name": None,
     "stock_message_ids": [],
     "category_id": DEFAULT_TICKET_CATEGORY_ID,
     "max_tickets_per_day": 5,
