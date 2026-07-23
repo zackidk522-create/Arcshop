@@ -1,7 +1,9 @@
 import os
+import io
 import json
 import asyncio
 import datetime
+import discord
 from flask import Flask, request, session, redirect, url_for, render_template_string, flash
 from threading import Thread
 
@@ -173,6 +175,27 @@ def get_guild_categories():
         return future.result(timeout=10)
     except Exception:
         return []
+
+
+async def _upload_image_async(channel_id, file_bytes, filename):
+    channel = _bot.get_channel(channel_id)
+    if channel is None:
+        return None
+    msg = await channel.send(file=discord.File(io.BytesIO(file_bytes), filename=filename))
+    if msg.attachments:
+        return msg.attachments[0].url
+    return None
+
+
+def upload_product_image(channel_id, file_bytes, filename):
+    """يرفع صورة الغرض كمرفق داخل قناة الوسائط المحددة في الإعدادات، ويرجع رابط CDN دائم من ديسكورد."""
+    if _bot is None or _bot.loop is None or not channel_id:
+        return None
+    future = asyncio.run_coroutine_threadsafe(_upload_image_async(channel_id, file_bytes, filename), _bot.loop)
+    try:
+        return future.result(timeout=20)
+    except Exception:
+        return None
 
 
 def build_sales_chart_data(days=7):
@@ -370,6 +393,15 @@ DASHBOARD_PAGE = f"""
           </select>
         </div>
         <div>
+          <label>🖼️ قناة رفع صور المنتجات (Media)</label>
+          <select name="media_channel_id">
+            <option value="">-- بدون --</option>
+            {{% for cid, cname in channels %}}
+            <option value="{{{{ cid }}}}" {{{{ 'selected' if cfg.get('media_channel_id') == cid else '' }}}}>#{{{{ cname }}}}</option>
+            {{% endfor %}}
+          </select>
+        </div>
+        <div>
           <label>🔢 الحد اليومي للتذاكر</label>
           <input type="number" name="max_tickets_per_day" value="{{{{ cfg.get('max_tickets_per_day', 5) }}}}">
         </div>
@@ -388,7 +420,7 @@ DASHBOARD_PAGE = f"""
   <h2>📦 إدارة المخزون</h2>
   <div class="card">
     <h3 style="margin-top:0; color:#e6c877;">➕ إضافة / تعديل غرض</h3>
-    <form method="POST" action="{{{{ url_for('add_item') }}}}">
+    <form method="POST" action="{{{{ url_for('add_item') }}}}" enctype="multipart/form-data">
       <div class="grid">
         <div><label>الكاتيجوري</label><input type="text" name="category" required placeholder="🔫 Weapons"></div>
         <div><label>اسم الغرض</label><input type="text" name="name" required></div>
@@ -398,8 +430,12 @@ DASHBOARD_PAGE = f"""
         <div><label>EGP</label><input type="number" step="0.01" name="EGP" required></div>
         <div><label>JOD</label><input type="number" step="0.01" name="JOD" required></div>
         <div><label>الكمية المتوفرة</label><input type="number" name="quantity" placeholder="اتركه فاضي = غير محدود"></div>
-        <div><label>رابط الصورة (اختياري)</label><input type="text" name="image_url" placeholder="https://..."></div>
+        <div><label>📤 ارفع صورة من جهازك</label><input type="file" name="image_file" accept="image/*"></div>
+        <div><label>أو رابط الصورة (اختياري)</label><input type="text" name="image_url" placeholder="https://..."></div>
       </div>
+      {{% if not cfg.get('media_channel_id') %}}
+      <p style="color:#f0a; font-size:13px; margin-top:5px;">⚠️ لرفع الصور من جهازك مباشرة، حدد "قناة رفع صور المنتجات" في الإعدادات فوق الأول.</p>
+      {{% endif %}}
       <button type="submit">💾 حفظ الغرض</button>
     </form>
   </div>
@@ -518,6 +554,7 @@ def update_settings():
         ("log_channel_id", "log_channel_name", channels),
         ("orders_channel_id", "orders_channel_name", channels),
         ("welcome_channel_id", "welcome_channel_name", channels),
+        ("media_channel_id", "media_channel_name", channels),
         ("category_id", None, categories_list),
     ]:
         raw = request.form.get(field, "").strip()
@@ -546,6 +583,21 @@ def add_item():
     name = request.form.get("name", "").strip()
     image_url = request.form.get("image_url", "").strip()
     qty_raw = request.form.get("quantity", "").strip()
+
+    uploaded_file = request.files.get("image_file")
+    if uploaded_file and uploaded_file.filename:
+        cfg_check = load_config()
+        media_channel_id = cfg_check.get("media_channel_id")
+        if not media_channel_id:
+            flash("⚠️ حدد قناة رفع صور المنتجات في الإعدادات الأول عشان ترفع صور من جهازك", "error")
+            return redirect(url_for("dashboard"))
+        file_bytes = uploaded_file.read()
+        uploaded_url = upload_product_image(media_channel_id, file_bytes, uploaded_file.filename)
+        if uploaded_url:
+            image_url = uploaded_url
+        else:
+            flash("❌ فشل رفع الصورة، جرب تاني", "error")
+            return redirect(url_for("dashboard"))
     try:
         prices = {
             "SAR": float(request.form.get("SAR", 0)),
